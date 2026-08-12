@@ -173,7 +173,7 @@ Clone the repository:
 
 ```bash
 git clone https://github.com/yuki-nemurenai/amneziawg-web-dashboard
-cd awg-web
+cd amneziawg-web-dashboard/
 ```
 
 Copy the example environment file:
