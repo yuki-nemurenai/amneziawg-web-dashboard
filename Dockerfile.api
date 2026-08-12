@@ -1,0 +1,66 @@
+# =========================================================
+# Go Backend Builder Stage
+# =========================================================
+FROM golang:1.26-alpine AS builder
+
+WORKDIR /app
+
+COPY --link api/go.mod api/go.sum ./
+
+RUN go mod download
+
+COPY --link api/. .
+
+RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w" -o /app/awg-api ./cmd/server
+
+# =========================================================
+# AmneziaWG Go Stage
+# =========================================================
+FROM golang:1.26-alpine AS awg-go
+
+RUN apk add --no-cache \
+    git \
+    build-base && \
+    git clone https://github.com/amnezia-vpn/amneziawg-go.git && \
+    cd amneziawg-go && \
+    go mod download && \
+    go mod verify && \
+    go build -ldflags '-linkmode external -extldflags "-fno-PIC -static"' -v -o /usr/bin/amneziawg-go
+
+# =========================================================
+# AmneziaWG Tools Builder Stage
+# =========================================================
+FROM alpine:3.24 AS tools
+
+RUN apk add --no-cache \
+    git \
+    build-base \
+    linux-headers && \
+    git clone https://github.com/amnezia-vpn/amneziawg-tools.git /amneziawg-tools && \
+    cd /amneziawg-tools/src && \
+    make
+
+# =========================================================
+# Production Runtime Stage
+# =========================================================
+FROM alpine:3.24
+
+RUN apk add --no-cache \
+    bash \
+    iptables \
+    iproute2 \
+    wireguard-tools \
+    ca-certificates \
+    curl
+
+WORKDIR /app
+
+COPY --link --from=builder /app/awg-api /app/awg-api
+COPY --link --from=tools /amneziawg-tools/src/wg /usr/bin/awg
+COPY --link --from=awg-go /usr/bin/amneziawg-go /usr/bin/amneziawg-go
+
+RUN chmod +x /usr/bin/awg /usr/bin/amneziawg-go && ln -sf /usr/bin/awg /usr/bin/wg
+
+EXPOSE 8080
+
+ENTRYPOINT ["/app/awg-api"]

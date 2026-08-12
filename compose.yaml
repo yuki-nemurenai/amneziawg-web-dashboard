@@ -1,0 +1,107 @@
+name: awg-web
+
+x-logging: &logging
+  driver: json-file
+  options:
+    max-size: "500m"
+    max-file: "2"
+
+services:
+  postgres:
+    image: postgres:18-alpine3.24
+    container_name: postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-awg}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-awgsecretpassword}
+      POSTGRES_DB: ${POSTGRES_DB:-awg_db}
+    volumes:
+      - postgres_data:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-awg} -d ${POSTGRES_DB:-awg_db}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    logging: *logging
+    networks:
+      awg:
+        ipv4_address: 172.30.0.3
+
+  awg-api:
+    image: gghcr.io/yuki-nemurenai/amneziawg-web-dashboard/api:0.0.1 # x-release-please-version
+    container_name: awg-api
+    restart: unless-stopped
+    cap_add:
+      - NET_ADMIN
+      - SYS_MODULE
+    sysctls:
+      net.ipv4.conf.all.src_valid_mark: 1
+    devices:
+      - /dev/net/tun
+    depends_on:
+      postgres:
+        condition: service_healthy
+    ports:
+      - "${AWG_PORT:-8443}:${AWG_PORT:-8443}/udp"
+      - "8080:8080"
+    environment:
+      - DB_HOST=postgres
+      - DB_PORT=5432
+      - DB_USER=${POSTGRES_USER:-awg}
+      - DB_PASSWORD=${POSTGRES_PASSWORD:-awgsecretpassword}
+      - DB_NAME=${POSTGRES_DB:-awg_db}
+      - DB_SSLMODE=disable
+      - JWT_SECRET=${JWT_SECRET:-super-secret-jwt-key-replace-in-production}
+      - PUBLIC_IP=${PUBLIC_IP:-}
+      - AWG_PORT=${AWG_PORT:-8443}
+    volumes:
+      - /lib/modules:/lib/modules:rw
+      - wireguard_socket:/var/run/wireguard
+      - awg_socket:/run/amneziawg
+      - awg_config:/etc/amnezia/amneziawg
+      - ./clients:/etc/amnezia/amneziawg/clients
+    ulimits:
+      nofile:
+        soft: 65536
+        hard: 65536
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    logging: *logging
+    networks:
+      awg:
+        ipv4_address: 172.30.0.4
+
+  awg-ui:
+    image: ghcr.io/yuki-nemurenai/amneziawg-web-dashboard/ui:0.0.1 # x-release-please-version
+    container_name: awg-ui
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    ports:
+      - 80:80
+    depends_on:
+      - awg-api
+    logging: *logging
+    networks:
+      awg:
+        ipv4_address: 172.30.0.5
+
+volumes:
+  postgres_data:
+  wireguard_socket:
+  awg_socket:
+  awg_config:
+
+networks:
+  awg:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.30.0.0/24
+          gateway: 172.30.0.1

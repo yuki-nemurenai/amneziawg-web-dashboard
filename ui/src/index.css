@@ -1,0 +1,521 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --bg-main: #F5F7FB;
+    --card-bg: #FFFFFF;
+    --card-muted: #F8FAFC;
+    --card-border: rgba(15, 23, 42, 0.08);
+    --text-primary: #111827;
+    --text-secondary: #64748B;
+    --input-bg: #FFFFFF;
+    --input-border: rgba(100, 116, 139, 0.22);
+    --input-text: #111827;
+    --sidebar-bg: #111827;
+    --sidebar-border: rgba(255, 255, 255, 0.08);
+    --topbar-bg: rgba(245, 247, 251, 0.86);
+    --divider: rgba(15, 23, 42, 0.08);
+    --accent: #0D9488;
+    --accent-strong: #0F766E;
+  }
+
+  .dark {
+    --bg-main: #0F172A;
+    --card-bg: #111827;
+    --card-muted: #172033;
+    --card-border: rgba(255, 255, 255, 0.08);
+    --text-primary: #F8FAFC;
+    --text-secondary: #94A3B8;
+    --input-bg: #111827;
+    --input-border: rgba(255, 255, 255, 0.1);
+    --input-text: #F8FAFC;
+    --sidebar-bg: #0B1120;
+    --sidebar-border: rgba(255, 255, 255, 0.08);
+    --topbar-bg: rgba(15, 23, 42, 0.82);
+    --divider: rgba(255, 255, 255, 0.1);
+    --accent: #0D9488;
+    --accent-strong: #0F766E;
+  }
+
+  body {
+    background-color: var(--bg-main);
+    color: var(--text-primary);
+    font-family: 'Plus Jakarta Sans', 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+    overflow-x: hidden;
+    transition: background-color 0.3s ease, color 0.3s ease;
+  }
+
+  /* High contrast rule for input fields */
+  input, textarea, select {
+    color: var(--input-text);
+  }
+}
+
+.config-code-box {
+  background-color: #0B1120 !important;
+  color: #2DD4BF !important;
+  -webkit-text-fill-color: #2DD4BF !important;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace !important;
+}
+
+.finebank-card {
+  background: var(--card-bg);
+  border: 1px solid var(--card-border);
+  box-shadow: 0 16px 36px rgba(15, 23, 42, 0.06);
+  transition: border-color 0.2s ease, box-shadow 0.2s ease, transform 0.2s ease;
+}
+
+.dark .finebank-card {
+  box-shadow: 0 16px 36px rgba(0, 0, 0, 0.22);
+}
+
+.finebank-card:hover {
+  border-color: rgba(13, 148, 136, 0.28);
+  box-shadow: 0 18px 38px rgba(15, 23, 42, 0.08);
+}
+
+.dark .finebank-card:hover {
+  box-shadow: 0 18px 38px rgba(0, 0, 0, 0.28);
+}
+
+.finebank-input {
+  background: var(--input-bg);
+  border: 1px solid var(--input-border);
+  color: var(--input-text) !important;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease, background 0.2s ease;
+}
+
+.finebank-input:focus {
+  border-color: var(--accent);
+  background: var(--card-bg);
+  box-shadow: 0 0 0 4px rgba(13, 148, 136, 0.14);
+  outline: none;
+}
+
+.sidebar-active-item {
+  background: rgba(13, 148, 136, 0.18);
+  color: #FFFFFF !important;
+  box-shadow: inset 3.5px 0 0 #0D9488;
+}
+
+.sidebar-inactive-item {
+  color: rgba(226, 232, 240, 0.72);
+}
+
+.sidebar-inactive-item:hover {
+  background: rgba(255, 255, 255, 0.06);
+  color: #FFFFFF;
+}
+
+.status-pill-online {
+  background: rgba(5, 205, 153, 0.1);
+  color: #05CD99;
+  border: 1px solid rgba(5, 205, 153, 0.2);
+}
+
+.dark .status-pill-online {
+  background: rgba(5, 205, 153, 0.15);
+  color: #05CD99;
+  border: 1px solid rgba(5, 205, 153, 0.25);
+}
+
+.status-pill-offline {
+  background: rgba(163, 174, 208, 0.1);
+  color: #A3AED0;
+  border: 1px solid rgba(163, 174, 208, 0.2);
+}
+
+.dark .status-pill-offline {
+  background: rgba(163, 174, 208, 0.15);
+  color: #A3AED0;
+  border: 1px solid rgba(163, 174, 208, 0.25);
+}
+
+.modal-scale-in {
+  animation: modalScaleIn 0.3s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+@keyframes modalScaleIn {
+  0% {
+    opacity: 0;
+    transform: scale(0.95) translateY(10px);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+
+.surface-grid {
+  background-image:
+    linear-gradient(rgba(100, 116, 139, 0.08) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(100, 116, 139, 0.08) 1px, transparent 1px);
+  background-size: 28px 28px;
+}
+
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--text-secondary);
+  border-radius: 10px;
+  opacity: 0.5;
+}
+.dark ::-webkit-scrollbar-thumb {
+  background: #A3AED0;
+}
+
+/* ─── Material buttons ──────────────────────────────────────── */
+.material-primary-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.625rem 1.125rem;
+  border-radius: 0.75rem;
+  font-size: 13px;
+  font-weight: 700;
+  color: #ffffff;
+  background-color: #0d9488;
+  border: 1px solid #0d9488;
+  box-shadow: 0 4px 14px rgba(13, 148, 136, 0.25);
+  transition: all 150ms ease;
+}
+.material-primary-btn:hover {
+  background-color: #0f766e;
+  border-color: #0f766e;
+  box-shadow: 0 6px 18px rgba(13, 148, 136, 0.35);
+}
+.material-primary-btn:active {
+  transform: scale(0.95);
+}
+
+.material-search-input {
+  border-radius: 0.75rem;
+  border: 1px solid var(--input-border);
+  background-color: var(--input-bg);
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--input-text);
+  transition: all 200ms ease;
+}
+.material-search-input:focus {
+  outline: none;
+  border-color: #0d9488;
+  box-shadow: 0 0 0 3px rgba(13, 148, 136, 0.2);
+}
+
+.material-icon-btn {
+  width: 2.25rem;
+  height: 2.25rem;
+  border-radius: 0.75rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-secondary);
+  transition: all 150ms ease;
+}
+.material-icon-btn:hover {
+  background-color: rgba(148, 163, 184, 0.12);
+  color: var(--text-primary);
+}
+.material-icon-btn:active {
+  transform: scale(0.9);
+}
+
+/* ─── Topbar ────────────────────────────────────────────────── */
+.topbar {
+  @apply sticky top-0 z-30 px-5 sm:px-7 pt-4 pb-3
+         bg-[var(--topbar-bg)] border-b border-[var(--divider)]
+         backdrop-blur-xl transition-colors duration-300;
+}
+.topbar-row {
+  @apply flex items-center;
+}
+.topbar-row-main {
+  @apply justify-between gap-4 flex-wrap;
+}
+.topbar-row-sub {
+  @apply justify-between gap-4 mt-2.5 flex-wrap;
+}
+.topbar-page-info {
+  @apply min-w-0;
+}
+.topbar-greeting {
+  @apply text-[12px] font-semibold text-slate-500 dark:text-slate-400;
+}
+.topbar-title {
+  @apply text-[24px] font-extrabold tracking-tight text-slate-950 dark:text-white leading-tight mt-0.5 truncate;
+}
+.topbar-subtitle {
+  @apply text-[12px] font-medium text-slate-400;
+}
+.topbar-actions {
+  @apply flex items-center gap-2.5 shrink-0;
+}
+.topbar-search-wrap {
+  @apply relative hidden md:block;
+}
+.topbar-search-input {
+  @apply pl-10 pr-4 py-2.5 w-[220px] lg:w-[280px];
+}
+.topbar-icon-actions {
+  @apply flex items-center gap-1;
+}
+.topbar-avatar {
+  @apply hidden sm:flex w-9 h-9 rounded-xl bg-gradient-to-br from-teal-600 to-teal-500
+         items-center justify-center text-[13px] font-extrabold text-white
+         shadow-md shadow-teal-600/20 cursor-default select-none ml-1;
+}
+
+/* Endpoint badge */
+.topbar-endpoint-badge {
+  @apply inline-flex items-center gap-2.5 px-3 py-1.5 rounded-xl
+         bg-white dark:bg-slate-900 border border-[var(--card-border)]
+         text-[12px] font-semibold shadow-sm;
+}
+.topbar-status-dot-wrap {
+  @apply relative flex items-center justify-center w-2.5 h-2.5 shrink-0;
+}
+.topbar-status-ping {
+  @apply absolute inline-flex h-full w-full rounded-full bg-teal-400 opacity-60 animate-ping;
+}
+.topbar-status-dot {
+  @apply relative w-2 h-2 rounded-full;
+}
+.topbar-status-dot.online  { @apply bg-teal-500; }
+.topbar-status-dot.offline { @apply bg-amber-500; }
+.topbar-endpoint-text {
+  @apply flex items-center gap-1.5 text-slate-700 dark:text-slate-200;
+}
+.topbar-iface {
+  @apply font-bold;
+}
+.topbar-sep {
+  @apply text-slate-300 dark:text-slate-600;
+}
+.topbar-endpoint-ip {
+  @apply text-teal-600 dark:text-teal-300 font-bold tabular-nums;
+}
+.topbar-endpoint-pending {
+  @apply text-slate-400 italic;
+}
+.topbar-auto-tag {
+  @apply inline-block ml-1 px-1.5 py-0.5 rounded-md text-[10px] font-bold
+         bg-teal-50 text-teal-600 dark:bg-teal-500/10 dark:text-teal-300 uppercase tracking-wider;
+}
+.topbar-notif-dot {
+  @apply absolute top-1.5 right-1.5 h-2 w-2 rounded-full bg-teal-500 ring-2 ring-white dark:ring-slate-900;
+}
+
+/* Notifications panel */
+.topbar-notif-panel {
+  @apply absolute right-0 mt-2 w-80 bg-white dark:bg-slate-900
+         border border-[var(--card-border)] rounded-2xl shadow-xl z-50 overflow-hidden;
+}
+.topbar-notif-header {
+  @apply flex items-center justify-between px-4 py-3
+         border-b border-[var(--divider)] bg-slate-50 dark:bg-slate-800/60;
+}
+.topbar-notif-header h3 {
+  @apply text-[13px] font-bold text-slate-900 dark:text-white;
+}
+.topbar-notif-badge {
+  @apply text-[10px] font-bold px-2 py-0.5 rounded-full
+         bg-indigo-50 text-indigo-600 dark:bg-teal-900/30 dark:text-teal-400;
+}
+.topbar-notif-body {
+  @apply max-h-72 overflow-y-auto;
+}
+.topbar-notif-empty {
+  @apply px-4 py-8 text-center flex flex-col items-center text-slate-400 text-[13px];
+}
+.topbar-notif-list {
+  @apply divide-y divide-[var(--divider)];
+}
+.topbar-notif-item {
+  @apply px-4 py-3 flex gap-3 hover:bg-slate-50 dark:hover:bg-white/[0.02] transition-colors;
+}
+.topbar-notif-msg {
+  @apply text-[12px] font-medium text-slate-700 dark:text-slate-200 leading-snug;
+}
+.topbar-notif-time {
+  @apply text-[11px] text-slate-400 font-medium mt-0.5;
+}
+
+/* ─── Metric cards ──────────────────────────────────────────── */
+.metric-card {
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+.metric-card:hover {
+  transform: translateY(-2px);
+}
+
+/* ─── Traffic charts root ───────────────────────────────────── */
+.traffic-charts-root {
+  @apply flex flex-col gap-4;
+}
+.traffic-charts-row2 {
+  @apply grid grid-cols-1 gap-4 sm:grid-cols-[1fr_260px];
+}
+
+/* ─── Chart card shell ──────────────────────────────────────── */
+.chart-card {
+  @apply finebank-card rounded-2xl p-5;
+}
+.chart-card-header {
+  @apply flex items-start justify-between gap-4 mb-4;
+}
+.chart-card-title {
+  @apply text-[15px] font-extrabold text-slate-950 dark:text-white;
+}
+.chart-card-subtitle {
+  @apply mt-0.5 text-[12px] text-slate-500 dark:text-slate-400;
+}
+.chart-card-actions {
+  @apply shrink-0;
+}
+.chart-card-actions-row {
+  @apply flex flex-wrap items-center gap-2;
+}
+.chart-card-body {
+  /* just a passthrough */
+}
+
+/* Period selector */
+.chart-period-selector {
+  @apply flex items-center gap-0.5 rounded-lg bg-slate-100 dark:bg-white/[0.05] p-0.5;
+}
+.chart-period-btn {
+  @apply rounded-md px-2.5 py-1 text-[11px] font-bold transition-colors
+         text-slate-500 dark:text-slate-400
+         hover:text-slate-700 dark:hover:text-slate-200;
+}
+.chart-period-btn.active {
+  @apply bg-white dark:bg-slate-800 text-slate-900 dark:text-white shadow-sm;
+}
+
+/* Filter tabs (all/download/upload) */
+.chart-filter-tabs {
+  @apply flex items-center gap-0.5 rounded-lg bg-slate-100 dark:bg-white/[0.05] p-0.5;
+}
+.chart-filter-tab {
+  @apply rounded-md px-2.5 py-1 text-[11px] font-bold transition-colors
+         text-slate-500 dark:text-slate-400
+         hover:text-slate-700 dark:hover:text-slate-200;
+}
+.chart-filter-tab.active {
+  @apply bg-white dark:bg-slate-800 text-slate-900 dark:text-white shadow-sm;
+}
+
+/* Legend row */
+.chart-legend-row {
+  @apply flex items-center gap-5 mt-3 px-1;
+}
+.chart-legend-pill {
+  @apply flex items-center gap-2 text-[12px] font-semibold text-slate-600 dark:text-slate-300;
+}
+.chart-legend-dot {
+  @apply w-3 h-3 rounded-full shrink-0;
+}
+
+/* Custom tooltip */
+.chart-tooltip {
+  @apply rounded-xl border border-[var(--card-border)]
+         bg-white/95 dark:bg-slate-900/95
+         backdrop-blur-sm px-3.5 py-3 shadow-xl;
+}
+.chart-tooltip-label {
+  @apply text-[10px] font-extrabold uppercase tracking-widest text-slate-400 mb-2;
+}
+.chart-tooltip-rows {
+  @apply space-y-1.5;
+}
+.chart-tooltip-row {
+  @apply flex items-center justify-between gap-6 text-[13px];
+}
+.chart-tooltip-dot {
+  @apply w-2.5 h-2.5 rounded-full shrink-0;
+}
+.chart-tooltip-name {
+  @apply flex items-center gap-2 text-slate-500 dark:text-slate-400;
+}
+.chart-tooltip-value {
+  @apply font-extrabold text-slate-950 dark:text-white tabular-nums;
+}
+
+/* Summary strip */
+.chart-summary-strip {
+  @apply finebank-card rounded-2xl px-5 py-4 flex items-center gap-0 flex-wrap sm:flex-nowrap;
+}
+.chart-summary-item {
+  @apply flex items-center gap-3 flex-1 min-w-[100px];
+}
+.chart-summary-dot {
+  @apply w-2.5 h-2.5 rounded-full shrink-0;
+}
+.chart-summary-label {
+  @apply text-[10px] font-bold uppercase tracking-wider text-slate-400;
+}
+.chart-summary-value {
+  @apply text-[17px] font-extrabold text-slate-950 dark:text-white tabular-nums leading-snug;
+}
+.chart-summary-divider {
+  @apply hidden sm:block w-px h-10 bg-[var(--divider)] mx-4 shrink-0;
+}
+
+/* Chart empty state */
+.chart-empty {
+  @apply absolute inset-0 flex flex-col items-center justify-center gap-1 text-center z-10
+         bg-white/60 dark:bg-slate-900/60 backdrop-blur-[2px] rounded-xl;
+}
+.chart-empty-ring {
+  @apply w-12 h-12 rounded-full border-2 border-dashed border-slate-300 dark:border-slate-600 mb-1;
+}
+.chart-empty-text {
+  @apply text-[13px] font-bold text-slate-500 dark:text-slate-400;
+}
+.chart-empty-sub {
+  @apply text-[11px] text-slate-400 dark:text-slate-500;
+}
+
+/* Donut chart */
+.donut-wrap {
+  @apply relative;
+}
+.donut-center {
+  @apply absolute inset-0 flex flex-col items-center justify-center pointer-events-none;
+}
+.donut-center-label {
+  @apply text-[10px] font-bold uppercase tracking-wider text-slate-400;
+}
+.donut-center-value {
+  @apply text-[15px] font-extrabold text-slate-950 dark:text-white tabular-nums;
+}
+
+/* Pie legend */
+.pie-legend {
+  @apply flex items-center justify-center gap-6 mt-3 pb-1;
+}
+.pie-legend-item {
+  @apply flex items-center gap-2.5;
+}
+.pie-legend-dot {
+  @apply w-3 h-3 rounded-full shrink-0;
+}
+.pie-legend-name {
+  @apply text-[11px] font-semibold text-slate-500 dark:text-slate-400;
+}
+.pie-legend-pct {
+  @apply text-[14px] font-extrabold text-slate-900 dark:text-white tabular-nums;
+}
+
+/* ─── Chart area wrapper helper ─────────────────────────────── */
+.chart-area-wrap {
+  position: relative;
+}
