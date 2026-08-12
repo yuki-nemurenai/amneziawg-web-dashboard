@@ -28,7 +28,7 @@ services:
         ipv4_address: 172.30.0.3
 
   awg-api:
-    image: gghcr.io/yuki-nemurenai/amneziawg-web-dashboard/api:0.1.0 # x-release-please-version
+    image: ghcr.io/yuki-nemurenai/amneziawg-web-dashboard/api:0.1.0 # x-release-please-version
     container_name: awg-api
     restart: unless-stopped
     cap_add:
