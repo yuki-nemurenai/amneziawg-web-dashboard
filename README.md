@@ -1,12 +1,15 @@
 # AmneziaWG Dashboard and Management Panel
 
+[![Release](https://img.shields.io/github/v/release/yuki-nemurenai/amneziawg-web-dashboard?style=for-the-badge&logo=github&label=release)](https://github.com/yuki-nemurenai/amneziawg-web-dashboard/releases)
+[![CI](https://img.shields.io/github/actions/workflow/status/yuki-nemurenai/amneziawg-web-dashboard/ci.yaml?branch=main&style=for-the-badge&logo=githubactions&logoColor=white&label=CI)](https://github.com/yuki-nemurenai/amneziawg-web-dashboard/actions/workflows/ci.yaml)
+[![Go](https://img.shields.io/github/go-mod/go-version/yuki-nemurenai/amneziawg-web-dashboard?filename=api%2Fgo.mod&style=for-the-badge&logo=go&logoColor=white)](api/go.mod)
+[![React](https://img.shields.io/badge/React-19-61DAFB?style=for-the-badge&logo=react&logoColor=black)](ui/package.json)
+[![PostgreSQL](https://img.shields.io/badge/PostgreSQL-18-4169E1?style=for-the-badge&logo=postgresql&logoColor=white)](compose.yaml)
+[![Docker Compose](https://img.shields.io/badge/Docker_Compose-deploy-2496ED?style=for-the-badge&logo=docker&logoColor=white)](compose.yaml)
+[![Conventional Commits](https://img.shields.io/badge/Conventional_Commits-1.0.0-FE5196?style=for-the-badge&logo=conventionalcommits&logoColor=white)](https://www.conventionalcommits.org/)
+[![License](https://img.shields.io/github/license/yuki-nemurenai/amneziawg-web-dashboard?style=for-the-badge)](LICENSE)
+
 A web-based dashboard and management panel for AmneziaWG (AWG) servers.
-
-![Go](https://img.shields.io/badge/Backend-Golang_1.27-00ADD8?style=flat&logo=go)
-![React](https://img.shields.io/badge/Frontend-React_19-61DAFB?style=flat&logo=react)
-![PostgreSQL](https://img.shields.io/badge/Database-PostgreSQL_18-4169E1?style=flat&logo=postgresql)
-![Docker](https://img.shields.io/badge/Deployment-Docker_Compose-2496ED?style=flat&logo=docker)
-
 
 ## Features
 
