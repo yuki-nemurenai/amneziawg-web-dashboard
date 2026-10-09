@@ -2,7 +2,7 @@
 
 A web-based dashboard and management panel for AmneziaWG (AWG) servers.
 
-![Go](https://img.shields.io/badge/Backend-Golang_1.26-00ADD8?style=flat&logo=go)
+![Go](https://img.shields.io/badge/Backend-Golang_1.27-00ADD8?style=flat&logo=go)
 ![React](https://img.shields.io/badge/Frontend-React_19-61DAFB?style=flat&logo=react)
 ![PostgreSQL](https://img.shields.io/badge/Database-PostgreSQL_18-4169E1?style=flat&logo=postgresql)
 ![Docker](https://img.shields.io/badge/Deployment-Docker_Compose-2496ED?style=flat&logo=docker)
@@ -245,7 +245,7 @@ On first startup, the **Initial User Setup Wizard** will prompt you to create an
 
 ## Tech Stack
 
-- **Backend**: Go 1.26, `go-chi/v5`, `jackc/pgx/v5`, `golang-jwt/jwt/v5`, `golang.org/x/crypto`, `log/slog`
+- **Backend**: Go 1.27, `go-chi/v5`, `jackc/pgx/v5`, `golang-jwt/jwt/v5`, `golang.org/x/crypto`, `log/slog`
 - **Frontend**: React 19, Vite, Tailwind CSS, Lucide Icons
 - **Database**: PostgreSQL 18
 - **Web Server**: Nginx

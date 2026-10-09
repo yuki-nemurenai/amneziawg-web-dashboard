@@ -69,8 +69,8 @@ func (r *fileConfigRepo) LoadServerConfig() (*domain.ServerConfig, error) {
 			continue
 		}
 
-		if strings.HasPrefix(line, "#") {
-			commentContent := strings.TrimSpace(strings.TrimPrefix(line, "#"))
+		if after, ok := strings.CutPrefix(line, "#"); ok {
+			commentContent := strings.TrimSpace(after)
 			if parts := strings.SplitN(commentContent, "=", 2); len(parts) == 2 {
 				k := strings.TrimSpace(parts[0])
 				v := strings.TrimSpace(parts[1])

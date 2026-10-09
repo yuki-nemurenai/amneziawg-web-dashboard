@@ -1,7 +1,7 @@
 # =========================================================
 # Go Backend Builder Stage
 # =========================================================
-FROM golang:1.26-alpine AS builder
+FROM golang:1.27-alpine AS builder
 
 WORKDIR /app
 
@@ -16,7 +16,7 @@ RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w" -o /app/awg-api ./cmd/ser
 # =========================================================
 # AmneziaWG Go Stage
 # =========================================================
-FROM golang:1.26-alpine AS awg-go
+FROM golang:1.27-alpine AS awg-go
 
 RUN apk add --no-cache \
     git \

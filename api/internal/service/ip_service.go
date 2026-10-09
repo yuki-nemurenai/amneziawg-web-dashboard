@@ -1,8 +1,9 @@
 package service
 
 import (
+	"cmp"
 	"fmt"
-	"sort"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -49,7 +50,7 @@ func (s *ipService) AllocateNextIP(subnetPrefix string, existingPeers []domain.P
 
 func ExtractSubnetPrefix(address string) string {
 	// Address like "172.24.170.1/24" -> "172.24.170"
-	ipOnly := strings.Split(address, "/")[0]
+	ipOnly, _, _ := strings.Cut(address, "/")
 	parts := strings.Split(ipOnly, ".")
 	if len(parts) >= 3 {
 		return strings.Join(parts[0:3], ".")
@@ -58,10 +59,8 @@ func ExtractSubnetPrefix(address string) string {
 }
 
 func SortPeersByIP(peers []domain.Peer) {
-	sort.Slice(peers, func(i, j int) bool {
-		octetI := extractLastOctet(peers[i].IP)
-		octetJ := extractLastOctet(peers[j].IP)
-		return octetI < octetJ
+	slices.SortFunc(peers, func(a, b domain.Peer) int {
+		return cmp.Compare(extractLastOctet(a.IP), extractLastOctet(b.IP))
 	})
 }
 

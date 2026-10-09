@@ -12,39 +12,48 @@ env:
   DOCKER_CONTAINER_REGISTRY: ghcr.io
   
 jobs:
-  release-please:
+  # magic-releaser (.magic-releaser.yaml) analyses the Conventional Commits of
+  # main: a release bumps the images in compose.yaml, prepends CHANGELOG.md,
+  # pushes the `chore(release): vX.Y.Z` commit with its tag and creates the
+  # GitHub release, without a release pull request.
+  release:
     runs-on: ubuntu-latest
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    # The release commit lands on main and starts this workflow again
+    if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' &&
+      !startsWith(github.event.head_commit.message, 'chore(release):') }}
+    concurrency:
+      group: release
+      cancel-in-progress: false
     outputs:
-      release_created: ${{ steps.release.outputs.release_created }}
-      tag_name: ${{ steps.release.outputs.tag_name }}
+      released: ${{ steps.release.outputs.released }}
+      tag: ${{ steps.release.outputs.tag }}
+      version: ${{ steps.release.outputs.version }}
     permissions:
       contents: write
-      pull-requests: write
     steps:
-      - uses: googleapis/release-please-action@v5
-        id: release
-        with:
-          config-file: release-please-config.json
-          manifest-file: .release-please-manifest.json
-
       - name: Checkout repository
-        if: ${{ steps.release.outputs.release_created == 'true' }}
         uses: actions/checkout@v7
-
-      - name: Uploading release assets
-        if: ${{ steps.release.outputs.release_created == 'true' }}
-        uses: softprops/action-gh-release@v3
         with:
-          tag_name: ${{ steps.release.outputs.tag_name }}
-          files: |
-            compose.yaml
-            .env.example
+          fetch-depth: 0
+
+      - name: Release
+        id: release
+        uses: yuki-nemurenai/magic-releaser@v1
+
+      # The compose file of the release pins its images
+      - name: Upload release assets
+        if: ${{ steps.release.outputs.released == 'true' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.release.outputs.tag }}
+        run: |
+          git checkout "$TAG"
+          gh release upload "$TAG" compose.yaml .env.example --clobber
 
   build:
     name: Build ${{ matrix.IMAGE_NAME }}
-    needs: release-please
-    if: ${{ needs.release-please.outputs.release_created == 'true' }}
+    needs: release
+    if: ${{ needs.release.outputs.released == 'true' }}
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -62,6 +71,8 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.release.outputs.tag }}
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v4
@@ -81,13 +92,15 @@ jobs:
           images: ${{ env.DOCKER_CONTAINER_REGISTRY }}/${{ github.repository }}/${{ matrix.IMAGE_NAME }}
           tags: |
             type=raw,value=latest
-            type=semver,pattern={{version}},value=${{ needs.release-please.outputs.tag_name }}
+            type=raw,value=${{ needs.release.outputs.version }}
 
       - name: Docker Build and Push
         env: 
           DOCKER_BUILD_SUMMARY: false
         uses: docker/build-push-action@v7
         with:
+          # Built from the release tag, not from the commit that started the run
+          context: .
           file: ${{ matrix.DOCKERFILE }}
           push: true
           tags: ${{ steps.meta.outputs.tags }}

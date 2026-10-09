@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -277,9 +278,7 @@ func (r *postgresConfigRepo) GetTrafficHistory(limit int) ([]domain.TrafficPoint
 	}
 
 	// Reverse to chronological order
-	for i, j := 0, len(history)-1; i < j; i, j = i+1, j-1 {
-		history[i], history[j] = history[j], history[i]
-	}
+	slices.Reverse(history)
 
 	return history, nil
 }

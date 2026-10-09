@@ -1,0 +1,14 @@
+versioning: semver
+tagFormat: "v{{version}}"
+requirePreviousRelease: true
+
+packages:
+  - name: amneziawg-web-dashboard
+    files:
+      # The images of the release are pinned in the compose file users download
+      - type: docker
+        path: compose.yaml
+        image: ghcr.io/yuki-nemurenai/amneziawg-web-dashboard/api
+      - type: docker
+        path: compose.yaml
+        image: ghcr.io/yuki-nemurenai/amneziawg-web-dashboard/ui

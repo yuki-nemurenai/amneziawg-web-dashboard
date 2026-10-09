@@ -45,3 +45,6 @@ pnpm-debug.log*
 # Generated AWG Client Configs & QR codes
 clients/
 awg*.conf
+# Agent working notes
+/AGENTS.md
+CLAUDE.md

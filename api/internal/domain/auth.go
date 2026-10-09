@@ -9,10 +9,10 @@ var ErrNotFound = errors.New("record not found")
 
 // AdminUser represents an administrator in PostgreSQL
 type AdminUser struct {
-	ID           int       `json:"id"`
-	Username     string    `json:"username"`
-	PasswordHash string    `json:"-"`
-	CreatedAt    time.Time `json:"created_at"`
+	ID           int        `json:"id"`
+	Username     string     `json:"username"`
+	PasswordHash string     `json:"-"`
+	CreatedAt    time.Time  `json:"created_at"`
 	LastLoginAt  *time.Time `json:"last_login_at,omitempty"`
 }
 

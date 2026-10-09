@@ -102,7 +102,7 @@ func (s *awgService) regenerateClientConfigs(cfg *domain.ServerConfig) {
 			}
 
 			privKey := ""
-			for _, line := range strings.Split(string(content), "\n") {
+			for line := range strings.SplitSeq(string(content), "\n") {
 				if strings.HasPrefix(strings.TrimSpace(line), "PrivateKey") {
 					parts := strings.Split(line, "=")
 					if len(parts) == 2 {

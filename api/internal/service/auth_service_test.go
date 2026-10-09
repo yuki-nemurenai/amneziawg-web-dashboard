@@ -58,7 +58,7 @@ func (m *mockAdminRepo) UpdatePasswordHash(ctx context.Context, id int, password
 }
 
 func TestAuthService(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	repo := &mockAdminRepo{admins: make(map[string]*domain.AdminUser)}
 	svc := NewAuthService(repo)
 

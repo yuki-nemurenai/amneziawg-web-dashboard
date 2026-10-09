@@ -20,8 +20,8 @@ func AuthMiddleware(authService service.AuthService) func(http.Handler) http.Han
 			authHeader := r.Header.Get("Authorization")
 			tokenStr := ""
 
-			if strings.HasPrefix(authHeader, "Bearer ") {
-				tokenStr = strings.TrimPrefix(authHeader, "Bearer ")
+			if after, ok := strings.CutPrefix(authHeader, "Bearer "); ok {
+				tokenStr = after
 			} else if queryToken := r.URL.Query().Get("token"); queryToken != "" {
 				tokenStr = queryToken
 			} else if cookie, err := r.Cookie("awg_token"); err == nil {
