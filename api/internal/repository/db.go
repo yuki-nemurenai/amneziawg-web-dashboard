@@ -1,3 +1,5 @@
+// Package repository stores the dashboard state in PostgreSQL and mirrors the
+// server configuration to the AmneziaWG configuration file.
 package repository
 
 import (
@@ -10,6 +12,16 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
+const (
+	connectAttempts   = 10
+	connectRetryDelay = 2 * time.Second
+	pingTimeout       = 3 * time.Second
+)
+
+// InitDB connects to PostgreSQL and creates the schema. It retries the
+// connection because the database container may still be starting when the API
+// starts. The connection comes from DATABASE_URL or, if it is empty, from the
+// DB_* variables.
 func InitDB(ctx context.Context) (*pgxpool.Pool, error) {
 	connStr := os.Getenv("DATABASE_URL")
 	if connStr == "" {
@@ -26,7 +38,7 @@ func InitDB(ctx context.Context) (*pgxpool.Pool, error) {
 
 	config, err := pgxpool.ParseConfig(connStr)
 	if err != nil {
-		return nil, fmt.Errorf("failed to parse postgres conn string: %w", err)
+		return nil, fmt.Errorf("parse database URL: %w", err)
 	}
 
 	config.MaxConns = 20
@@ -34,33 +46,46 @@ func InitDB(ctx context.Context) (*pgxpool.Pool, error) {
 	config.MaxConnLifetime = 30 * time.Minute
 
 	var pool *pgxpool.Pool
-	var pingErr error
-
-	for i := 1; i <= 10; i++ {
-		pool, pingErr = pgxpool.NewWithConfig(ctx, config)
-		if pingErr == nil {
-			pingCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
-			pingErr = pool.Ping(pingCtx)
-			cancel()
-			if pingErr == nil {
-				break
-			}
+	for attempt := 1; ; attempt++ {
+		pool, err = connect(ctx, config)
+		if err == nil {
+			break
 		}
-		slog.Info("Waiting for PostgreSQL connection (pgx)...", "attempt", i, "error", pingErr)
-		time.Sleep(2 * time.Second)
-	}
-
-	if pingErr != nil {
-		return nil, fmt.Errorf("could not connect to postgres via pgx after retries: %w", pingErr)
+		if attempt == connectAttempts {
+			return nil, fmt.Errorf("connect to PostgreSQL after %d attempts: %w", attempt, err)
+		}
+		slog.Info("Waiting for PostgreSQL connection (pgx)...", "attempt", attempt, "error", err)
+		select {
+		case <-ctx.Done():
+			return nil, fmt.Errorf("connect to PostgreSQL: %w", context.Cause(ctx))
+		case <-time.After(connectRetryDelay):
+		}
 	}
 
 	slog.Info("Successfully connected to PostgreSQL database via pgx/v5 pool")
 
-	// Run auto migrations
 	if err := migrateSchema(ctx, pool); err != nil {
-		return nil, fmt.Errorf("database migration failed: %w", err)
+		pool.Close()
+		return nil, fmt.Errorf("migrate schema: %w", err)
 	}
 
+	return pool, nil
+}
+
+// connect opens a pool and checks that the database answers, because
+// pgxpool.NewWithConfig does not connect until the first query.
+func connect(ctx context.Context, config *pgxpool.Config) (*pgxpool.Pool, error) {
+	pool, err := pgxpool.NewWithConfig(ctx, config)
+	if err != nil {
+		return nil, err
+	}
+
+	pingCtx, cancel := context.WithTimeout(ctx, pingTimeout)
+	defer cancel()
+	if err := pool.Ping(pingCtx); err != nil {
+		pool.Close()
+		return nil, err
+	}
 	return pool, nil
 }
 
@@ -118,10 +143,9 @@ func migrateSchema(ctx context.Context, pool *pgxpool.Pool) error {
 		`CREATE INDEX IF NOT EXISTS idx_peer_traffic_history_pubkey ON peer_traffic_history(public_key);`,
 	}
 
-	for _, query := range queries {
+	for i, query := range queries {
 		if _, err := pool.Exec(ctx, query); err != nil {
-			slog.Error("Database migration failed", "error", err, "query", query)
-			return err
+			return fmt.Errorf("apply migration %d: %w", i+1, err)
 		}
 	}
 

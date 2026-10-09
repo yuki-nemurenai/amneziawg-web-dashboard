@@ -1,8 +1,11 @@
+// Command server runs the AmneziaWG dashboard API. It manages the AmneziaWG
+// interface of the host it runs on and stores its state in PostgreSQL.
 package main
 
 import (
 	"context"
 	"embed"
+	"errors"
 	"fmt"
 	"io/fs"
 	"log/slog"
@@ -18,6 +21,7 @@ import (
 	"github.com/yuki-nemurenai/amneziawg-web-dashboard/api/internal/api/router"
 	"github.com/yuki-nemurenai/amneziawg-web-dashboard/api/internal/repository"
 	"github.com/yuki-nemurenai/amneziawg-web-dashboard/api/internal/service"
+	"github.com/yuki-nemurenai/amneziawg-web-dashboard/api/internal/system"
 )
 
 //go:embed web/dist/*
@@ -51,7 +55,6 @@ func main() {
 }
 
 func runServer(port int, configPath string, clientsDir string, interfaceName string) {
-	// Structured logger setup using log/slog
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelInfo}))
 	slog.SetDefault(logger)
 
@@ -61,36 +64,45 @@ func runServer(port int, configPath string, clientsDir string, interfaceName str
 		"clients_dir", clientsDir,
 	)
 
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
+	initCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 
-	// Initialize PostgreSQL Connection Pool via jackc/pgx/v5
-	pool, err := repository.InitDB(ctx)
+	pool, err := repository.InitDB(initCtx)
 	if err != nil {
 		slog.Error("Failed to initialize PostgreSQL database pool (pgx/v5)", "error", err)
 		os.Exit(1)
 	}
 	defer pool.Close()
 
-	if _, err := os.Stat(configPath); os.IsNotExist(err) {
+	if _, err := os.Stat(configPath); errors.Is(err, fs.ErrNotExist) {
 		localPath := "awg0.conf"
 		if _, localErr := os.Stat(localPath); localErr == nil {
 			slog.Info("Using local awg0.conf", "path", localPath)
 			configPath = localPath
 		} else {
 			slog.Warn("Config file does not exist, creating placeholder", "path", configPath)
-			_ = os.MkdirAll(filepath.Dir(configPath), 0755)
+			if err := os.MkdirAll(filepath.Dir(configPath), 0755); err != nil {
+				slog.Error("Failed to create config directory", "path", filepath.Dir(configPath), "error", err)
+			}
 		}
 	}
 
-	// Layered Architecture Initialization
 	adminRepo := repository.NewPostgresAdminRepo(pool)
-	configRepo := repository.NewPostgresConfigRepo(pool, configPath)
+	configRepo := repository.NewPostgresConfigRepo(initCtx, pool, configPath)
 
 	authService := service.NewAuthService(adminRepo)
-	ipService := service.NewIPService()
-	awgService := service.NewAWGService(configRepo, ipService, clientsDir, interfaceName)
-	awgService.StartMetricsCollector()
+	awgService := service.NewAWGService(initCtx, service.AWGConfig{
+		Repo:          configRepo,
+		IPService:     service.NewIPService(),
+		Commander:     system.Exec{},
+		Locator:       system.NewLocator(os.Getenv("PUBLIC_IP")),
+		ClientsDir:    clientsDir,
+		InterfaceName: interfaceName,
+	})
+	awgService.StartMetricsCollector(ctx)
 
 	var webFS fs.FS
 	distSub, err := fs.Sub(embeddedFrontend, "web/dist")
@@ -101,28 +113,23 @@ func runServer(port int, configPath string, clientsDir string, interfaceName str
 		}
 	}
 
-	appRouter := router.NewRouter(awgService, authService, webFS)
-
 	server := &http.Server{
 		Addr:         fmt.Sprintf(":%d", port),
-		Handler:      appRouter,
+		Handler:      router.NewRouter(awgService, authService, webFS),
 		ReadTimeout:  15 * time.Second,
 		WriteTimeout: 15 * time.Second,
 		IdleTimeout:  60 * time.Second,
 	}
 
-	shutdownChan := make(chan os.Signal, 1)
-	signal.Notify(shutdownChan, os.Interrupt, syscall.SIGTERM)
-
 	go func() {
-		slog.Info(fmt.Sprintf("Server listening on http://0.0.0.0:%d", port))
-		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+		slog.Info("Server listening", "addr", fmt.Sprintf("http://0.0.0.0:%d", port))
+		if err := server.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			slog.Error("HTTP Server error", "error", err)
 			os.Exit(1)
 		}
 	}()
 
-	<-shutdownChan
+	<-ctx.Done()
 	slog.Info("Shutting down server gracefully...")
 
 	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 10*time.Second)

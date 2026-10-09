@@ -6,6 +6,7 @@ import (
 	"time"
 )
 
+// responseWriter remembers the status code for the log line.
 type responseWriter struct {
 	http.ResponseWriter
 	statusCode int
@@ -16,6 +17,7 @@ func (rw *responseWriter) WriteHeader(code int) {
 	rw.ResponseWriter.WriteHeader(code)
 }
 
+// Logger logs the method, path, status and duration of every request.
 func Logger(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		start := time.Now()

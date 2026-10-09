@@ -10,17 +10,20 @@ import (
 	"github.com/yuki-nemurenai/amneziawg-web-dashboard/api/internal/domain"
 )
 
+// IPService picks addresses for new clients.
 type IPService interface {
 	AllocateNextIP(subnetPrefix string, existingPeers []domain.Peer) (string, error)
 }
 
 type ipService struct{}
 
+// NewIPService returns an IPService that hands out addresses of a /24 subnet.
 func NewIPService() IPService {
 	return &ipService{}
 }
 
-// AllocateNextIP parses subnet prefix (e.g., "172.24.170") and finds the lowest available octet starting from .2 up to .254
+// AllocateNextIP returns the lowest free address from .2 to .254 of the subnet
+// with the given first three octets, such as "172.24.170". The server holds .1.
 func (s *ipService) AllocateNextIP(subnetPrefix string, existingPeers []domain.Peer) (string, error) {
 	usedOctets := make(map[int]bool)
 
@@ -48,8 +51,9 @@ func (s *ipService) AllocateNextIP(subnetPrefix string, existingPeers []domain.P
 	return "", fmt.Errorf("no available IP addresses left in subnet %s.0/24", subnetPrefix)
 }
 
+// ExtractSubnetPrefix returns the first three octets of an interface address,
+// "172.24.170" for "172.24.170.1/24", or "172.20.0" if address is not IPv4.
 func ExtractSubnetPrefix(address string) string {
-	// Address like "172.24.170.1/24" -> "172.24.170"
 	ipOnly, _, _ := strings.Cut(address, "/")
 	parts := strings.Split(ipOnly, ".")
 	if len(parts) >= 3 {
@@ -58,6 +62,8 @@ func ExtractSubnetPrefix(address string) string {
 	return "172.20.0"
 }
 
+// SortPeersByIP sorts peers by the last octet of their address, the order the
+// dashboard lists clients in.
 func SortPeersByIP(peers []domain.Peer) {
 	slices.SortFunc(peers, func(a, b domain.Peer) int {
 		return cmp.Compare(extractLastOctet(a.IP), extractLastOctet(b.IP))

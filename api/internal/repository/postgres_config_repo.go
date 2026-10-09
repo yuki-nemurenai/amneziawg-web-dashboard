@@ -2,7 +2,9 @@ package repository
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"log/slog"
 	"os"
 	"slices"
 	"strings"
@@ -20,38 +22,57 @@ type postgresConfigRepo struct {
 	mu         sync.Mutex // to serialize DB writes and file flushes
 }
 
-func NewPostgresConfigRepo(pool *pgxpool.Pool, configPath string) ConfigRepository {
+// NewPostgresConfigRepo returns a ConfigRepository backed by PostgreSQL that
+// rewrites the AmneziaWG configuration file at configPath after every change,
+// because awg reads the interface settings from that file. On the first start
+// it imports an existing file, or a generated default configuration, into the
+// database.
+func NewPostgresConfigRepo(ctx context.Context, pool *pgxpool.Pool, configPath string) ConfigRepository {
 	repo := &postgresConfigRepo{
 		pool:       pool,
 		configPath: configPath,
 	}
 
-	// Initial sync: if DB is empty but awg0.conf exists, we could migrate it.
-	// For now, if DB has no server_config, we generate default and save it.
-	cfg, err := repo.LoadServerConfig()
-	if err == pgx.ErrNoRows {
-		// Try to read from awg0.conf, if not, generate default.
-		fileRepo := NewFileConfigRepo(configPath)
-		fileCfg, fileErr := fileRepo.LoadServerConfig()
-		if fileErr == nil && fileCfg != nil && fileCfg.Address != "" {
-			_ = repo.SaveServerConfig(fileCfg)
-			// Add all peers from file
-			for _, peer := range fileCfg.Peers {
-				_ = repo.AddPeer(peer)
-			}
+	cfg, err := repo.LoadServerConfig(ctx)
+	switch {
+	case errors.Is(err, domain.ErrNotFound):
+		repo.importFile(ctx)
+	case err != nil:
+		slog.Error("Failed to load server config on startup", "error", err)
+	default:
+		// The file could have been edited while the API was down.
+		if err := repo.flushToDisk(cfg); err != nil {
+			slog.Error("Failed to write server config file on startup", "path", configPath, "error", err)
 		}
-	} else if err == nil && cfg != nil {
-		// Ensure file matches DB on boot
-		_ = repo.flushToDisk(cfg)
 	}
 
 	return repo
 }
 
-func (r *postgresConfigRepo) LoadServerConfig() (*domain.ServerConfig, error) {
-	ctx := context.Background()
+// importFile stores the configuration file, or a generated default if there
+// is none, in the database.
+func (r *postgresConfigRepo) importFile(ctx context.Context) {
+	fileCfg, err := NewFileConfigRepo(r.configPath).LoadServerConfig(ctx)
+	if err != nil {
+		slog.Error("Failed to read server config file for import", "path", r.configPath, "error", err)
+		return
+	}
+	if fileCfg.Address == "" {
+		return
+	}
 
-	query := `SELECT 
+	if err := r.SaveServerConfig(ctx, fileCfg); err != nil {
+		slog.Error("Failed to import server config", "error", err)
+	}
+	for _, peer := range fileCfg.Peers {
+		if err := r.AddPeer(ctx, peer); err != nil {
+			slog.Error("Failed to import peer", "peer", peer.Name, "error", err)
+		}
+	}
+}
+
+func (r *postgresConfigRepo) LoadServerConfig(ctx context.Context) (*domain.ServerConfig, error) {
+	query := `SELECT
 		private_key, public_key, address, listen_port, endpoint, dns, lan_allowed,
 		persistent_keepalive, post_up, post_down,
 		jc, jmin, jmax, s1, s2, s3, s4, h1, h2, h3, h4, i1, i2, i3, i4, i5
@@ -66,39 +87,39 @@ func (r *postgresConfigRepo) LoadServerConfig() (*domain.ServerConfig, error) {
 		&cfg.Obfuscation.H1, &cfg.Obfuscation.H2, &cfg.Obfuscation.H3, &cfg.Obfuscation.H4,
 		&cfg.Obfuscation.I1, &cfg.Obfuscation.I2, &cfg.Obfuscation.I3, &cfg.Obfuscation.I4, &cfg.Obfuscation.I5,
 	)
-
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, fmt.Errorf("server config: %w", domain.ErrNotFound)
+	}
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("load server config: %w", err)
 	}
 
 	if port := os.Getenv("AWG_PORT"); port != "" {
 		cfg.ListenPort = port
 	}
 
-	// Fetch peers
-	peersQuery := `SELECT name, public_key, preshared_key, ip, allowed_ips FROM peers ORDER BY id ASC`
-	rows, err := r.pool.Query(ctx, peersQuery)
+	rows, err := r.pool.Query(ctx, `SELECT name, public_key, preshared_key, ip, allowed_ips FROM peers ORDER BY id ASC`)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("load peers: %w", err)
 	}
-	defer rows.Close()
-
-	for rows.Next() {
-		var p domain.Peer
-		if err := rows.Scan(&p.Name, &p.PublicKey, &p.PresharedKey, &p.IP, &p.AllowedIPs); err != nil {
-			return nil, err
-		}
-		cfg.Peers = append(cfg.Peers, p)
+	cfg.Peers, err = pgx.CollectRows(rows, scanPeer)
+	if err != nil {
+		return nil, fmt.Errorf("load peers: %w", err)
 	}
 
 	return &cfg, nil
 }
 
-func (r *postgresConfigRepo) SaveServerConfig(cfg *domain.ServerConfig) error {
+func scanPeer(row pgx.CollectableRow) (domain.Peer, error) {
+	var p domain.Peer
+	err := row.Scan(&p.Name, &p.PublicKey, &p.PresharedKey, &p.IP, &p.AllowedIPs)
+	return p, err
+}
+
+func (r *postgresConfigRepo) SaveServerConfig(ctx context.Context, cfg *domain.ServerConfig) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
-	ctx := context.Background()
 	query := `
 		INSERT INTO server_config (
 			id, private_key, public_key, address, listen_port, endpoint, dns, lan_allowed,
@@ -129,56 +150,53 @@ func (r *postgresConfigRepo) SaveServerConfig(cfg *domain.ServerConfig) error {
 		cfg.Obfuscation.I1, cfg.Obfuscation.I2, cfg.Obfuscation.I3, cfg.Obfuscation.I4, cfg.Obfuscation.I5,
 	)
 	if err != nil {
-		return err
+		return fmt.Errorf("save server config: %w", err)
 	}
 
 	return r.flushToDisk(cfg)
 }
 
-func (r *postgresConfigRepo) AddPeer(peer domain.Peer) error {
+func (r *postgresConfigRepo) AddPeer(ctx context.Context, peer domain.Peer) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	ctx := context.Background()
 
 	query := `
 		INSERT INTO peers (name, public_key, preshared_key, ip, allowed_ips)
 		VALUES ($1, $2, $3, $4, $5)
 	`
-	_, err := r.pool.Exec(ctx, query, peer.Name, peer.PublicKey, peer.PresharedKey, peer.IP, peer.AllowedIPs)
-	if err != nil {
-		return fmt.Errorf("failed to insert peer: %w", err)
+	if _, err := r.pool.Exec(ctx, query, peer.Name, peer.PublicKey, peer.PresharedKey, peer.IP, peer.AllowedIPs); err != nil {
+		return fmt.Errorf("insert peer %q: %w", peer.Name, err)
 	}
 
-	return r.syncDiskNoLock()
+	return r.syncDiskNoLock(ctx)
 }
 
-func (r *postgresConfigRepo) DeletePeer(name string) error {
+func (r *postgresConfigRepo) DeletePeer(ctx context.Context, name string) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	ctx := context.Background()
 
-	query := `DELETE FROM peers WHERE name = $1`
-	_, err := r.pool.Exec(ctx, query, name)
-	if err != nil {
-		return err
+	if _, err := r.pool.Exec(ctx, `DELETE FROM peers WHERE name = $1`, name); err != nil {
+		return fmt.Errorf("delete peer %q: %w", name, err)
 	}
 
-	return r.syncDiskNoLock()
+	return r.syncDiskNoLock(ctx)
 }
 
-func (r *postgresConfigRepo) GetPeerByName(name string) (*domain.Peer, error) {
-	ctx := context.Background()
+func (r *postgresConfigRepo) GetPeerByName(ctx context.Context, name string) (*domain.Peer, error) {
 	query := `SELECT name, public_key, preshared_key, ip, allowed_ips FROM peers WHERE name = $1`
 	var p domain.Peer
 	err := r.pool.QueryRow(ctx, query, name).Scan(&p.Name, &p.PublicKey, &p.PresharedKey, &p.IP, &p.AllowedIPs)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, fmt.Errorf("peer %q: %w", name, domain.ErrNotFound)
+	}
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("get peer %q: %w", name, err)
 	}
 	return &p, nil
 }
 
-func (r *postgresConfigRepo) syncDiskNoLock() error {
-	cfg, err := r.LoadServerConfig()
+func (r *postgresConfigRepo) syncDiskNoLock(ctx context.Context) error {
+	cfg, err := r.LoadServerConfig(ctx)
 	if err != nil {
 		return err
 	}
@@ -247,15 +265,15 @@ func (r *postgresConfigRepo) flushToDisk(cfg *domain.ServerConfig) error {
 	return os.WriteFile(r.configPath, []byte(builder.String()), 0600)
 }
 
-func (r *postgresConfigRepo) RecordTraffic(rxBytes, txBytes int64) error {
-	ctx := context.Background()
+func (r *postgresConfigRepo) RecordTraffic(ctx context.Context, rxBytes, txBytes int64) error {
 	query := `INSERT INTO traffic_history (total_rx_bytes, total_tx_bytes) VALUES ($1, $2)`
-	_, err := r.pool.Exec(ctx, query, rxBytes, txBytes)
-	return err
+	if _, err := r.pool.Exec(ctx, query, rxBytes, txBytes); err != nil {
+		return fmt.Errorf("record traffic: %w", err)
+	}
+	return nil
 }
 
-func (r *postgresConfigRepo) GetTrafficHistory(limit int) ([]domain.TrafficPoint, error) {
-	ctx := context.Background()
+func (r *postgresConfigRepo) GetTrafficHistory(ctx context.Context, limit int) ([]domain.TrafficPoint, error) {
 	query := `
 		SELECT EXTRACT(EPOCH FROM timestamp)::BIGINT, total_rx_bytes, total_tx_bytes
 		FROM traffic_history
@@ -264,17 +282,15 @@ func (r *postgresConfigRepo) GetTrafficHistory(limit int) ([]domain.TrafficPoint
 	`
 	rows, err := r.pool.Query(ctx, query, limit)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("get traffic history: %w", err)
 	}
-	defer rows.Close()
-
-	var history []domain.TrafficPoint
-	for rows.Next() {
+	history, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (domain.TrafficPoint, error) {
 		var p domain.TrafficPoint
-		if err := rows.Scan(&p.Timestamp, &p.RxBytes, &p.TxBytes); err != nil {
-			return nil, err
-		}
-		history = append(history, p)
+		err := row.Scan(&p.Timestamp, &p.RxBytes, &p.TxBytes)
+		return p, err
+	})
+	if err != nil {
+		return nil, fmt.Errorf("get traffic history: %w", err)
 	}
 
 	// Reverse to chronological order
@@ -283,25 +299,21 @@ func (r *postgresConfigRepo) GetTrafficHistory(limit int) ([]domain.TrafficPoint
 	return history, nil
 }
 
-func (r *postgresConfigRepo) RecordPeerTraffic(timestamp time.Time, peers []domain.Peer) error {
-	ctx := context.Background()
+func (r *postgresConfigRepo) RecordPeerTraffic(ctx context.Context, timestamp time.Time, peers []domain.Peer) error {
 	batch := &pgx.Batch{}
-
 	query := `INSERT INTO peer_traffic_history (timestamp, public_key, rx_bytes, tx_bytes) VALUES ($1, $2, $3, $4)`
 	for _, p := range peers {
 		batch.Queue(query, timestamp, p.PublicKey, p.RxBytes, p.TxBytes)
 	}
 
-	br := r.pool.SendBatch(ctx, batch)
-	defer br.Close()
-
-	_, err := br.Exec()
-	return err
+	// Close reads the results of every queued insert, not only the first one.
+	if err := r.pool.SendBatch(ctx, batch).Close(); err != nil {
+		return fmt.Errorf("record peer traffic: %w", err)
+	}
+	return nil
 }
 
-func (r *postgresConfigRepo) GetTopPeersTrafficHistory(limit int, topN int) (map[string][]domain.PeerTrafficPoint, error) {
-	ctx := context.Background()
-
+func (r *postgresConfigRepo) GetTopPeersTrafficHistory(ctx context.Context, limit int, topN int) (map[string][]domain.PeerTrafficPoint, error) {
 	// 1. Find the top N peers by total rx+tx over the last 'limit' records (approx 24h)
 	// We can approximate by looking at their most recent record in the time window minus their oldest record in the window
 	// Since we just want top N active peers, a simple way is to find peers with the highest (rx_bytes + tx_bytes) in their latest record
@@ -315,21 +327,16 @@ func (r *postgresConfigRepo) GetTopPeersTrafficHistory(limit int, topN int) (map
 	`
 	rows, err := r.pool.Query(ctx, topPeersQuery, topN)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("get top peers: %w", err)
 	}
-	defer rows.Close()
-
-	var topPubKeys []string
-	for rows.Next() {
-		var pk string
-		if err := rows.Scan(&pk); err == nil {
-			topPubKeys = append(topPubKeys, pk)
-		}
+	topPubKeys, err := pgx.CollectRows(rows, pgx.RowTo[string])
+	if err != nil {
+		return nil, fmt.Errorf("get top peers: %w", err)
 	}
-	rows.Close()
 
+	result := make(map[string][]domain.PeerTrafficPoint)
 	if len(topPubKeys) == 0 {
-		return make(map[string][]domain.PeerTrafficPoint), nil
+		return result, nil
 	}
 
 	// 2. Fetch the actual history for these top N peers
@@ -346,17 +353,17 @@ func (r *postgresConfigRepo) GetTopPeersTrafficHistory(limit int, topN int) (map
 	`
 	historyRows, err := r.pool.Query(ctx, historyQuery, topPubKeys, limit)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("get peer traffic history: %w", err)
 	}
-	defer historyRows.Close()
 
-	result := make(map[string][]domain.PeerTrafficPoint)
-	for historyRows.Next() {
-		var p domain.PeerTrafficPoint
-		var pubKey string
-		if err := historyRows.Scan(&p.Timestamp, &pubKey, &p.RxBytes, &p.TxBytes); err == nil {
-			result[pubKey] = append(result[pubKey], p)
-		}
+	var p domain.PeerTrafficPoint
+	var pubKey string
+	_, err = pgx.ForEachRow(historyRows, []any{&p.Timestamp, &pubKey, &p.RxBytes, &p.TxBytes}, func() error {
+		result[pubKey] = append(result[pubKey], p)
+		return nil
+	})
+	if err != nil {
+		return nil, fmt.Errorf("get peer traffic history: %w", err)
 	}
 
 	return result, nil

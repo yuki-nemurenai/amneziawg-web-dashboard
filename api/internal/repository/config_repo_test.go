@@ -1,6 +1,7 @@
 package repository
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
@@ -8,11 +9,7 @@ import (
 	"github.com/yuki-nemurenai/amneziawg-web-dashboard/api/internal/domain"
 )
 
-func TestConfigRepo(t *testing.T) {
-	tempDir := t.TempDir()
-	confPath := filepath.Join(tempDir, "awg0.conf")
-
-	sampleConf := `[Interface]
+const sampleConf = `[Interface]
 PrivateKey = testPrivateKey1234567890123456789012345=
 Address = 172.24.170.1/24
 ListenPort = 689
@@ -43,63 +40,95 @@ PublicKey = +yhqLeSf8Tt/SxC80OOdD4f6+Gf+32it+1QPgIWR+Tg=
 AllowedIPs = 172.24.170.3/32
 `
 
+// newSampleRepo returns a file repository over a copy of sampleConf.
+func newSampleRepo(t *testing.T) ConfigRepository {
+	t.Helper()
+	confPath := filepath.Join(t.TempDir(), "awg0.conf")
 	if err := os.WriteFile(confPath, []byte(sampleConf), 0600); err != nil {
-		t.Fatalf("Failed to write sample config: %v", err)
+		t.Fatalf("write sample config: %v", err)
 	}
+	return NewFileConfigRepo(confPath)
+}
 
-	repo := NewFileConfigRepo(confPath)
-
-	cfg, err := repo.LoadServerConfig()
+func TestFileConfigRepoLoadsInterfaceAndNamedPeers(t *testing.T) {
+	cfg, err := newSampleRepo(t).LoadServerConfig(t.Context())
 	if err != nil {
-		t.Fatalf("Failed to load config: %v", err)
+		t.Fatalf("LoadServerConfig() error = %v", err)
 	}
 
 	if cfg.Address != "172.24.170.1/24" {
-		t.Errorf("Expected address 172.24.170.1/24, got %s", cfg.Address)
+		t.Errorf("Address = %s, want 172.24.170.1/24", cfg.Address)
 	}
 	if cfg.Obfuscation.Jc != "6" {
-		t.Errorf("Expected Jc=6, got %s", cfg.Obfuscation.Jc)
+		t.Errorf("Obfuscation.Jc = %s, want 6", cfg.Obfuscation.Jc)
 	}
 	if len(cfg.Peers) != 2 {
-		t.Fatalf("Expected 2 peers, got %d", len(cfg.Peers))
+		t.Fatalf("len(Peers) = %d, want 2", len(cfg.Peers))
 	}
 	if cfg.Peers[0].Name != "alice" || cfg.Peers[0].IP != "172.24.170.2" {
-		t.Errorf("Unexpected peer 0: %+v", cfg.Peers[0])
+		t.Errorf("Peers[0] = %+v, want alice at 172.24.170.2", cfg.Peers[0])
 	}
 	if cfg.Peers[1].Name != "bob" || cfg.Peers[1].IP != "172.24.170.3" {
-		t.Errorf("Unexpected peer 1: %+v", cfg.Peers[1])
+		t.Errorf("Peers[1] = %+v, want bob at 172.24.170.3", cfg.Peers[1])
 	}
+}
 
-	// Add Peer
-	newPeer := domain.Peer{
+func TestFileConfigRepoAddsAndDeletesPeers(t *testing.T) {
+	ctx := t.Context()
+	repo := newSampleRepo(t)
+
+	charlie := domain.Peer{
 		Name:         "charlie",
 		PublicKey:    "pubkeycharlie=",
 		PresharedKey: "pskcharlie=",
 		AllowedIPs:   "172.24.170.4/32",
 		IP:           "172.24.170.4",
 	}
-	if err := repo.AddPeer(newPeer); err != nil {
-		t.Fatalf("Failed to add peer: %v", err)
+	if err := repo.AddPeer(ctx, charlie); err != nil {
+		t.Fatalf("AddPeer(charlie) error = %v", err)
+	}
+	if err := repo.DeletePeer(ctx, "bob"); err != nil {
+		t.Fatalf("DeletePeer(bob) error = %v", err)
 	}
 
-	cfgUpdated, err := repo.LoadServerConfig()
+	cfg, err := repo.LoadServerConfig(ctx)
 	if err != nil {
-		t.Fatalf("Failed to reload config: %v", err)
+		t.Fatalf("LoadServerConfig() error = %v", err)
 	}
-	if len(cfgUpdated.Peers) != 3 {
-		t.Fatalf("Expected 3 peers after addition, got %d", len(cfgUpdated.Peers))
+	var names []string
+	for _, p := range cfg.Peers {
+		names = append(names, p.Name)
 	}
+	if len(names) != 2 || names[0] != "alice" || names[1] != "charlie" {
+		t.Errorf("peer names = %v, want [alice charlie]", names)
+	}
+}
 
-	// Delete Peer
-	if err := repo.DeletePeer("bob"); err != nil {
-		t.Fatalf("Failed to delete peer: %v", err)
+func TestFileConfigRepoAddPeerRejectsDuplicates(t *testing.T) {
+	tests := []struct {
+		name string
+		peer domain.Peer
+	}{
+		{name: "same name in other case", peer: domain.Peer{Name: "Alice", PublicKey: "k1=", IP: "172.24.170.9"}},
+		{name: "same IP", peer: domain.Peer{Name: "dave", PublicKey: "k2=", IP: "172.24.170.2"}},
 	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if err := newSampleRepo(t).AddPeer(t.Context(), tt.peer); err == nil {
+				t.Errorf("AddPeer(%+v) error = nil, want error", tt.peer)
+			}
+		})
+	}
+}
 
-	cfgFinal, err := repo.LoadServerConfig()
-	if err != nil {
-		t.Fatalf("Failed to reload config after deletion: %v", err)
+func TestFileConfigRepoReportsMissingPeerAsNotFound(t *testing.T) {
+	ctx := t.Context()
+	repo := newSampleRepo(t)
+
+	if _, err := repo.GetPeerByName(ctx, "nobody"); !errors.Is(err, domain.ErrNotFound) {
+		t.Errorf("GetPeerByName(nobody) error = %v, want %v", err, domain.ErrNotFound)
 	}
-	if len(cfgFinal.Peers) != 2 {
-		t.Fatalf("Expected 2 peers after deletion, got %d", len(cfgFinal.Peers))
+	if err := repo.DeletePeer(ctx, "nobody"); !errors.Is(err, domain.ErrNotFound) {
+		t.Errorf("DeletePeer(nobody) error = %v, want %v", err, domain.ErrNotFound)
 	}
 }

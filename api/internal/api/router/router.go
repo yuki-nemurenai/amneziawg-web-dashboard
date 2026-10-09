@@ -1,3 +1,5 @@
+// Package router maps the API routes to handlers and sets the order of the
+// middleware.
 package router
 
 import (
@@ -13,6 +15,8 @@ import (
 	"github.com/yuki-nemurenai/amneziawg-web-dashboard/api/internal/service"
 )
 
+// NewRouter returns the API router. When webAssets is not nil it also serves
+// the UI, for running the API without Nginx.
 func NewRouter(awgService service.AWGService, authService service.AuthService, webAssets fs.FS) *chi.Mux {
 	r := chi.NewRouter()
 

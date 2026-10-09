@@ -2,11 +2,14 @@ package service
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
 	"github.com/yuki-nemurenai/amneziawg-web-dashboard/api/internal/domain"
 )
+
+var testNow = time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)
 
 type mockAdminRepo struct {
 	admins map[string]*domain.AdminUser
@@ -21,7 +24,7 @@ func (m *mockAdminRepo) CreateAdmin(ctx context.Context, username, passwordHash 
 		ID:           len(m.admins) + 1,
 		Username:     username,
 		PasswordHash: passwordHash,
-		CreatedAt:    time.Now(),
+		CreatedAt:    testNow,
 	}
 	m.admins[username] = u
 	return u, nil
@@ -57,71 +60,128 @@ func (m *mockAdminRepo) UpdatePasswordHash(ctx context.Context, id int, password
 	return domain.ErrNotFound
 }
 
-func TestAuthService(t *testing.T) {
-	ctx := t.Context()
-	repo := &mockAdminRepo{admins: make(map[string]*domain.AdminUser)}
-	svc := NewAuthService(repo)
+// fakeClock is a time source that tests move by hand.
+type fakeClock struct{ now time.Time }
 
-	// 1. Initial Status check -> needs setup
-	status, err := svc.GetAuthStatus(ctx)
+func (c *fakeClock) Now() time.Time { return c.now }
+
+// newTestAuthService returns an AuthService with no administrators and a clock
+// set to testNow.
+func newTestAuthService() (*authService, *fakeClock) {
+	clock := &fakeClock{now: testNow}
+	return &authService{
+		adminRepo: &mockAdminRepo{admins: make(map[string]*domain.AdminUser)},
+		jwtSecret: []byte("test-secret"),
+		now:       clock.Now,
+	}, clock
+}
+
+// setupAdmin creates the admin user with password password123.
+func setupAdmin(t *testing.T, svc *authService) {
+	t.Helper()
+	if _, err := svc.SetupAdmin(t.Context(), domain.SetupRequest{Username: "admin", Password: "password123"}); err != nil {
+		t.Fatalf("SetupAdmin() error = %v", err)
+	}
+}
+
+func TestGetAuthStatusNeedsSetupUntilAdminExists(t *testing.T) {
+	svc, _ := newTestAuthService()
+
+	status, err := svc.GetAuthStatus(t.Context())
 	if err != nil {
-		t.Fatalf("GetAuthStatus failed: %v", err)
+		t.Fatalf("GetAuthStatus() error = %v", err)
 	}
 	if !status.NeedsSetup {
-		t.Errorf("Expected NeedsSetup=true for empty database")
+		t.Errorf("NeedsSetup = false before setup, want true")
 	}
 
-	// 2. Setup Initial Admin
-	resp, err := svc.SetupAdmin(ctx, domain.SetupRequest{
-		Username: "admin",
-		Password: "password123",
-	})
+	setupAdmin(t, svc)
+
+	status, err = svc.GetAuthStatus(t.Context())
 	if err != nil {
-		t.Fatalf("SetupAdmin failed: %v", err)
+		t.Fatalf("GetAuthStatus() error = %v", err)
 	}
-	if resp.Token == "" || resp.User.Username != "admin" {
-		t.Errorf("Invalid setup response: %+v", resp)
+	if status.NeedsSetup {
+		t.Errorf("NeedsSetup = true after setup, want false")
 	}
+}
 
-	// 3. Status check after setup -> needs setup false
-	status2, _ := svc.GetAuthStatus(ctx)
-	if status2.NeedsSetup {
-		t.Errorf("Expected NeedsSetup=false after initial admin creation")
+func TestSetupAdminRejectsInvalidRequest(t *testing.T) {
+	tests := []struct {
+		name string
+		req  domain.SetupRequest
+	}{
+		{name: "short username", req: domain.SetupRequest{Username: "ab", Password: "password123"}},
+		{name: "short password", req: domain.SetupRequest{Username: "admin", Password: "12345"}},
 	}
-
-	// 4. Duplicate setup should fail
-	_, err = svc.SetupAdmin(ctx, domain.SetupRequest{
-		Username: "admin2",
-		Password: "password123",
-	})
-	if err == nil {
-		t.Errorf("Expected duplicate setup to fail")
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			svc, _ := newTestAuthService()
+			if _, err := svc.SetupAdmin(t.Context(), tt.req); err == nil {
+				t.Errorf("SetupAdmin(%+v) error = nil, want error", tt.req)
+			}
+		})
 	}
+}
 
-	// 5. Valid Login
-	loginResp, err := svc.Login(ctx, domain.LoginRequest{
-		Username: "admin",
-		Password: "password123",
-	})
+func TestSetupAdminRejectsSecondAdmin(t *testing.T) {
+	svc, _ := newTestAuthService()
+	setupAdmin(t, svc)
+
+	if _, err := svc.SetupAdmin(t.Context(), domain.SetupRequest{Username: "admin2", Password: "password123"}); err == nil {
+		t.Errorf("second SetupAdmin() error = nil, want error")
+	}
+}
+
+func TestLoginIssuesTokenForAdmin(t *testing.T) {
+	svc, _ := newTestAuthService()
+	setupAdmin(t, svc)
+
+	resp, err := svc.Login(t.Context(), domain.LoginRequest{Username: "admin", Password: "password123"})
 	if err != nil {
-		t.Fatalf("Login failed: %v", err)
+		t.Fatalf("Login() error = %v", err)
 	}
 
-	// 6. Validate Token
-	userClaims, err := svc.ValidateToken(loginResp.Token)
+	user, err := svc.ValidateToken(resp.Token)
 	if err != nil {
-		t.Fatalf("Token validation failed: %v", err)
+		t.Fatalf("ValidateToken() error = %v", err)
 	}
-	if userClaims.Username != "admin" {
-		t.Errorf("Expected username 'admin', got '%s'", userClaims.Username)
+	if user.Username != "admin" {
+		t.Errorf("ValidateToken().Username = %q, want %q", user.Username, "admin")
+	}
+}
+
+func TestLoginRejectsInvalidCredentials(t *testing.T) {
+	tests := []struct {
+		name string
+		req  domain.LoginRequest
+	}{
+		{name: "wrong password", req: domain.LoginRequest{Username: "admin", Password: "wrongpassword"}},
+		{name: "unknown user", req: domain.LoginRequest{Username: "root", Password: "password123"}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			svc, _ := newTestAuthService()
+			setupAdmin(t, svc)
+
+			if _, err := svc.Login(t.Context(), tt.req); !errors.Is(err, errInvalidCredentials) {
+				t.Errorf("Login(%+v) error = %v, want %v", tt.req, err, errInvalidCredentials)
+			}
+		})
+	}
+}
+
+func TestValidateTokenRejectsExpiredToken(t *testing.T) {
+	svc, clock := newTestAuthService()
+	setupAdmin(t, svc)
+	resp, err := svc.Login(t.Context(), domain.LoginRequest{Username: "admin", Password: "password123"})
+	if err != nil {
+		t.Fatalf("Login() error = %v", err)
 	}
 
-	// 7. Invalid Login Password
-	_, err = svc.Login(ctx, domain.LoginRequest{
-		Username: "admin",
-		Password: "wrongpassword",
-	})
-	if err == nil {
-		t.Errorf("Expected wrong password login to fail")
+	clock.now = testNow.Add(tokenLifetime + time.Second)
+
+	if _, err := svc.ValidateToken(resp.Token); err == nil {
+		t.Errorf("ValidateToken() of an expired token error = nil, want error")
 	}
 }

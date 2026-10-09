@@ -1,34 +1,29 @@
+// Package crypto generates the key material and obfuscation parameters of
+// AmneziaWG configurations.
 package crypto
 
 import (
 	"crypto/rand"
 	"encoding/base64"
 	"fmt"
-	"io"
 	"math/big"
-	"net"
-	"net/http"
-	"os"
-	"strings"
-	"time"
 
 	"golang.org/x/crypto/curve25519"
 )
 
-// KeyPair holds base64 encoded WireGuard private & public keys
+// KeyPair holds a Curve25519 key pair in the base64 form that AmneziaWG
+// configuration files use.
 type KeyPair struct {
 	PrivateKey string
 	PublicKey  string
 }
 
-// GenerateKeyPair creates a new Curve25519 keypair for WireGuard / AmneziaWG
-func GenerateKeyPair() (*KeyPair, error) {
+// GenerateKeyPair returns a new key pair. The private key is clamped as
+// WireGuard requires, so it has the same form as the output of awg genkey.
+func GenerateKeyPair() KeyPair {
 	var priv [32]byte
-	if _, err := rand.Read(priv[:]); err != nil {
-		return nil, fmt.Errorf("failed to generate random bytes: %w", err)
-	}
+	rand.Read(priv[:])
 
-	// Clamp key according to WireGuard spec
 	priv[0] &= 248
 	priv[31] &= 127
 	priv[31] |= 64
@@ -36,50 +31,50 @@ func GenerateKeyPair() (*KeyPair, error) {
 	var pub [32]byte
 	curve25519.ScalarBaseMult(&pub, &priv)
 
-	return &KeyPair{
+	return KeyPair{
 		PrivateKey: base64.StdEncoding.EncodeToString(priv[:]),
 		PublicKey:  base64.StdEncoding.EncodeToString(pub[:]),
-	}, nil
+	}
 }
 
-// GeneratePresharedKey creates a random 32-byte base64 preshared key
-func GeneratePresharedKey() (string, error) {
+// GeneratePresharedKey returns a random 32-byte preshared key in base64.
+func GeneratePresharedKey() string {
 	var psk [32]byte
-	if _, err := rand.Read(psk[:]); err != nil {
-		return "", fmt.Errorf("failed to generate preshared key: %w", err)
-	}
-	return base64.StdEncoding.EncodeToString(psk[:]), nil
+	rand.Read(psk[:])
+	return base64.StdEncoding.EncodeToString(psk[:])
 }
 
-// PublicFromPrivate computes public key from base64 private key
-func PublicFromPrivate(privateKeyBase64 string) (string, error) {
-	priv, err := base64.StdEncoding.DecodeString(privateKeyBase64)
-	if err != nil || len(priv) != 32 {
-		return "", fmt.Errorf("invalid private key length or encoding")
-	}
-
-	var privBytes [32]byte
-	copy(privBytes[:], priv)
-
-	var pubBytes [32]byte
-	curve25519.ScalarBaseMult(&pubBytes, &privBytes)
-
-	return base64.StdEncoding.EncodeToString(pubBytes[:]), nil
-}
-
-// RandomIntInRange returns a cryptographically random integer in [min, max]
-func RandomIntInRange(min, max int64) int64 {
-	if min >= max {
-		return min
-	}
-	nBig, err := rand.Int(rand.Reader, big.NewInt(max-min+1))
+// PublicFromPrivate derives the base64 public key of a base64 private key.
+// The public key is not stored in the server configuration file, so it is
+// recomputed whenever the file is read.
+func PublicFromPrivate(privateKey string) (string, error) {
+	priv, err := base64.StdEncoding.DecodeString(privateKey)
 	if err != nil {
-		return min
+		return "", fmt.Errorf("decode private key: %w", err)
 	}
-	return min + nBig.Int64()
+	pub, err := curve25519.X25519(priv, curve25519.Basepoint)
+	if err != nil {
+		return "", fmt.Errorf("derive public key: %w", err)
+	}
+	return base64.StdEncoding.EncodeToString(pub), nil
 }
 
-// GenerateRandomObfuscationParams creates randomized AmneziaWG obfuscation parameters
+// RandomIntInRange returns a cryptographically random integer in [lo, hi].
+// It returns lo when the range is empty.
+func RandomIntInRange(lo, hi int64) int64 {
+	if lo >= hi {
+		return lo
+	}
+	n, err := rand.Int(rand.Reader, big.NewInt(hi-lo+1))
+	if err != nil {
+		return lo
+	}
+	return lo + n.Int64()
+}
+
+// GenerateRandomObfuscationParams returns random AmneziaWG obfuscation
+// parameters in the order Jc, Jmin, Jmax, S1–S4, H1–H4. The H ranges do not
+// overlap, as AmneziaWG requires distinct message type headers.
 func GenerateRandomObfuscationParams() (string, string, string, string, string, string, string, string, string, string, string) {
 	jc := RandomIntInRange(3, 10)
 	jmin := RandomIntInRange(10, 40)
@@ -113,36 +108,4 @@ func GenerateRandomObfuscationParams() (string, string, string, string, string, 
 		fmt.Sprintf("%d-%d", h2Min, h2Max),
 		fmt.Sprintf("%d-%d", h3Min, h3Max),
 		fmt.Sprintf("%d-%d", h4Min, h4Max)
-}
-
-// GetPublicIP tries to fetch the server's public IP address via env var or HTTP providers
-func GetPublicIP() string {
-	if envIP := strings.TrimSpace(os.Getenv("PUBLIC_IP")); envIP != "" {
-		return envIP
-	}
-
-	client := &http.Client{Timeout: 3 * time.Second}
-	providers := []string{
-		"http://api.ipify.org",
-		"http://checkip.amazonaws.com",
-		"http://icanhazip.com",
-		"http://ifconfig.me/ip",
-		"https://api.ipify.org",
-	}
-
-	for _, url := range providers {
-		resp, err := client.Get(url)
-		if err == nil && resp.StatusCode == 200 {
-			body, err := io.ReadAll(resp.Body)
-			_ = resp.Body.Close()
-			if err == nil {
-				ip := strings.TrimSpace(string(body))
-				if net.ParseIP(ip) != nil {
-					return ip
-				}
-			}
-		}
-	}
-
-	return ""
 }

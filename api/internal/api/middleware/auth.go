@@ -1,3 +1,5 @@
+// Package middleware holds the HTTP middleware of the API: JWT
+// authentication and request logging.
 package middleware
 
 import (
@@ -11,8 +13,14 @@ import (
 
 type contextKey string
 
+// UserContextKey is the request context key of the *domain.AdminUser that
+// AuthMiddleware authenticated.
 const UserContextKey contextKey = "user"
 
+// AuthMiddleware rejects requests without a valid JWT with 401. The token is
+// read from the Authorization header, then from the token query parameter and
+// the awg_token cookie, because the UI downloads client configurations with a
+// plain link that cannot set headers.
 func AuthMiddleware(authService service.AuthService) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

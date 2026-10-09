@@ -1,6 +1,8 @@
 package domain
 
-// ObfuscationParams represents AmneziaWG specific parameters
+// ObfuscationParams are the AmneziaWG parameters that disguise WireGuard
+// traffic. They are kept as strings because they are written to the
+// configuration file verbatim and H1–H4 are ranges.
 type ObfuscationParams struct {
 	Jc   string `json:"jc"`
 	Jmin string `json:"jmin"`
@@ -20,7 +22,9 @@ type ObfuscationParams struct {
 	I5   string `json:"i5"`
 }
 
-// ServerConfig represents the server side awg0.conf
+// ServerConfig is the server side of the AmneziaWG configuration with all its
+// peers. Endpoint, DNS, LANAllowed and PersistentKeepalive are not server
+// settings: they only shape the client configurations.
 type ServerConfig struct {
 	Address             string            `json:"address"`
 	ListenPort          string            `json:"listen_port"`
@@ -36,7 +40,8 @@ type ServerConfig struct {
 	Peers               []Peer            `json:"peers"`
 }
 
-// Peer represents an individual client connected to the server
+// Peer is a client of the server. The fields from LatestHandshake on are the
+// runtime state reported by awg show and are not stored.
 type Peer struct {
 	Name                string `json:"name"`
 	PublicKey           string `json:"public_key"`
@@ -53,13 +58,14 @@ type Peer struct {
 	IsOnline            bool   `json:"is_online"`
 }
 
-// CreateClientRequest payload for adding a new peer
+// CreateClientRequest is the body of POST /api/clients. An empty IP means the
+// next free address of the subnet.
 type CreateClientRequest struct {
 	Name string `json:"name"`
 	IP   string `json:"ip,omitempty"`
 }
 
-// ClientResponse represents generated client details
+// ClientResponse is a created client with its configuration and QR code.
 type ClientResponse struct {
 	Name       string `json:"name"`
 	IP         string `json:"ip"`
@@ -67,7 +73,8 @@ type ClientResponse struct {
 	QRCodeSVG  string `json:"qr_code_svg"`
 }
 
-// SystemStatus represents live server metrics and traffic statistics
+// SystemStatus is the live state of the interface and its traffic for the
+// dashboard.
 type SystemStatus struct {
 	Interface          string                        `json:"interface"`
 	IsRunning          bool                          `json:"is_running"`
@@ -89,19 +96,20 @@ type SystemStatus struct {
 	Location           *ServerLocation               `json:"location"`
 }
 
+// ServerLocation is the country the server public IP belongs to.
 type ServerLocation struct {
 	Country     string `json:"country"`
 	CountryCode string `json:"country_code"`
 }
 
-// TrafficPoint represents a single point in time for total server traffic
+// TrafficPoint is the total traffic of the server at one moment.
 type TrafficPoint struct {
 	Timestamp int64 `json:"timestamp"` // unix timestamp
 	RxBytes   int64 `json:"rx_bytes"`
 	TxBytes   int64 `json:"tx_bytes"`
 }
 
-// PeerTrafficPoint represents a single point in time for a specific peer
+// PeerTrafficPoint is the traffic of one peer at one moment.
 type PeerTrafficPoint struct {
 	Timestamp int64 `json:"timestamp"` // unix timestamp
 	RxBytes   int64 `json:"rx_bytes"`

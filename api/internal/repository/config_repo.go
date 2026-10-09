@@ -2,7 +2,11 @@ package repository
 
 import (
 	"bufio"
+	"context"
+	"errors"
 	"fmt"
+	"io/fs"
+	"log/slog"
 	"os"
 	"regexp"
 	"strings"
@@ -13,16 +17,19 @@ import (
 	"github.com/yuki-nemurenai/amneziawg-web-dashboard/api/pkg/crypto"
 )
 
+// ConfigRepository stores the server configuration, its peers and the traffic
+// history. Lookups of a missing peer or configuration return an error wrapping
+// domain.ErrNotFound.
 type ConfigRepository interface {
-	LoadServerConfig() (*domain.ServerConfig, error)
-	SaveServerConfig(cfg *domain.ServerConfig) error
-	AddPeer(peer domain.Peer) error
-	DeletePeer(name string) error
-	GetPeerByName(name string) (*domain.Peer, error)
-	RecordTraffic(rxBytes, txBytes int64) error
-	GetTrafficHistory(limit int) ([]domain.TrafficPoint, error)
-	RecordPeerTraffic(timestamp time.Time, peers []domain.Peer) error
-	GetTopPeersTrafficHistory(limit int, topN int) (map[string][]domain.PeerTrafficPoint, error)
+	LoadServerConfig(ctx context.Context) (*domain.ServerConfig, error)
+	SaveServerConfig(ctx context.Context, cfg *domain.ServerConfig) error
+	AddPeer(ctx context.Context, peer domain.Peer) error
+	DeletePeer(ctx context.Context, name string) error
+	GetPeerByName(ctx context.Context, name string) (*domain.Peer, error)
+	RecordTraffic(ctx context.Context, rxBytes, txBytes int64) error
+	GetTrafficHistory(ctx context.Context, limit int) ([]domain.TrafficPoint, error)
+	RecordPeerTraffic(ctx context.Context, timestamp time.Time, peers []domain.Peer) error
+	GetTopPeersTrafficHistory(ctx context.Context, limit int, topN int) (map[string][]domain.PeerTrafficPoint, error)
 }
 
 type fileConfigRepo struct {
@@ -30,23 +37,30 @@ type fileConfigRepo struct {
 	mu         sync.RWMutex
 }
 
+// NewFileConfigRepo returns a ConfigRepository that keeps everything in the
+// AmneziaWG configuration file at configPath. It keeps no traffic history and
+// is used to import an existing file into PostgreSQL.
 func NewFileConfigRepo(configPath string) ConfigRepository {
 	return &fileConfigRepo{
 		configPath: configPath,
 	}
 }
 
-func (r *fileConfigRepo) LoadServerConfig() (*domain.ServerConfig, error) {
+func (r *fileConfigRepo) LoadServerConfig(ctx context.Context) (*domain.ServerConfig, error) {
 	r.mu.RLock()
 	file, err := os.Open(r.configPath)
 	if err != nil {
 		r.mu.RUnlock()
-		if os.IsNotExist(err) {
+		if errors.Is(err, fs.ErrNotExist) {
 			defaultCfg := r.createDefaultServerConfig()
-			_ = r.SaveServerConfig(defaultCfg)
+			// The generated config is still usable: the caller stores it in
+			// PostgreSQL, which rewrites the file later.
+			if err := r.SaveServerConfig(ctx, defaultCfg); err != nil {
+				slog.Warn("Failed to write default server config", "path", r.configPath, "error", err)
+			}
 			return defaultCfg, nil
 		}
-		return nil, fmt.Errorf("failed to open config file %s: %w", r.configPath, err)
+		return nil, fmt.Errorf("read server config: %w", err)
 	}
 	defer file.Close()
 	defer r.mu.RUnlock()
@@ -195,25 +209,29 @@ func (r *fileConfigRepo) LoadServerConfig() (*domain.ServerConfig, error) {
 	return cfg, scanner.Err()
 }
 
-func (r *fileConfigRepo) RecordTraffic(rxBytes, txBytes int64) error {
-	// Stub for file repo, not implemented
+// RecordTraffic does nothing: the configuration file has no place for history.
+func (r *fileConfigRepo) RecordTraffic(ctx context.Context, rxBytes, txBytes int64) error {
 	return nil
 }
 
-func (r *fileConfigRepo) GetTrafficHistory(limit int) ([]domain.TrafficPoint, error) {
-	// Stub for file repo, not implemented
+// GetTrafficHistory returns no history: the configuration file has none.
+func (r *fileConfigRepo) GetTrafficHistory(ctx context.Context, limit int) ([]domain.TrafficPoint, error) {
 	return nil, nil
 }
 
-func (r *fileConfigRepo) RecordPeerTraffic(timestamp time.Time, peers []domain.Peer) error {
+// RecordPeerTraffic does nothing: the configuration file has no place for
+// history.
+func (r *fileConfigRepo) RecordPeerTraffic(ctx context.Context, timestamp time.Time, peers []domain.Peer) error {
 	return nil
 }
 
-func (r *fileConfigRepo) GetTopPeersTrafficHistory(limit int, topN int) (map[string][]domain.PeerTrafficPoint, error) {
+// GetTopPeersTrafficHistory returns no history: the configuration file has
+// none.
+func (r *fileConfigRepo) GetTopPeersTrafficHistory(ctx context.Context, limit int, topN int) (map[string][]domain.PeerTrafficPoint, error) {
 	return nil, nil
 }
 
-func (r *fileConfigRepo) SaveServerConfig(cfg *domain.ServerConfig) error {
+func (r *fileConfigRepo) SaveServerConfig(ctx context.Context, cfg *domain.ServerConfig) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
@@ -281,27 +299,27 @@ func (r *fileConfigRepo) SaveServerConfig(cfg *domain.ServerConfig) error {
 	return os.WriteFile(r.configPath, []byte(builder.String()), 0600)
 }
 
-func (r *fileConfigRepo) AddPeer(peer domain.Peer) error {
-	cfg, err := r.LoadServerConfig()
+func (r *fileConfigRepo) AddPeer(ctx context.Context, peer domain.Peer) error {
+	cfg, err := r.LoadServerConfig(ctx)
 	if err != nil {
 		return err
 	}
 
 	for _, existing := range cfg.Peers {
 		if strings.EqualFold(existing.Name, peer.Name) {
-			return fmt.Errorf("peer with name '%s' already exists", peer.Name)
+			return fmt.Errorf("peer with name %q already exists", peer.Name)
 		}
 		if existing.IP == peer.IP && peer.IP != "" {
-			return fmt.Errorf("peer with IP '%s' already exists", peer.IP)
+			return fmt.Errorf("peer with IP %q already exists", peer.IP)
 		}
 	}
 
 	cfg.Peers = append(cfg.Peers, peer)
-	return r.SaveServerConfig(cfg)
+	return r.SaveServerConfig(ctx, cfg)
 }
 
-func (r *fileConfigRepo) DeletePeer(name string) error {
-	cfg, err := r.LoadServerConfig()
+func (r *fileConfigRepo) DeletePeer(ctx context.Context, name string) error {
+	cfg, err := r.LoadServerConfig(ctx)
 	if err != nil {
 		return err
 	}
@@ -317,15 +335,15 @@ func (r *fileConfigRepo) DeletePeer(name string) error {
 	}
 
 	if !found {
-		return fmt.Errorf("peer '%s' not found", name)
+		return fmt.Errorf("peer %q: %w", name, domain.ErrNotFound)
 	}
 
 	cfg.Peers = newPeers
-	return r.SaveServerConfig(cfg)
+	return r.SaveServerConfig(ctx, cfg)
 }
 
-func (r *fileConfigRepo) GetPeerByName(name string) (*domain.Peer, error) {
-	cfg, err := r.LoadServerConfig()
+func (r *fileConfigRepo) GetPeerByName(ctx context.Context, name string) (*domain.Peer, error) {
+	cfg, err := r.LoadServerConfig(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -336,24 +354,17 @@ func (r *fileConfigRepo) GetPeerByName(name string) (*domain.Peer, error) {
 		}
 	}
 
-	return nil, fmt.Errorf("peer '%s' not found", name)
+	return nil, fmt.Errorf("peer %q: %w", name, domain.ErrNotFound)
 }
 
 func (r *fileConfigRepo) createDefaultServerConfig() *domain.ServerConfig {
-	kp, err := crypto.GenerateKeyPair()
-	privKey := ""
-	pubKey := ""
-	if err == nil {
-		privKey = kp.PrivateKey
-		pubKey = kp.PublicKey
-	}
-
+	kp := crypto.GenerateKeyPair()
 	jc, jmin, jmax, s1, s2, s3, s4, h1, h2, h3, h4 := crypto.GenerateRandomObfuscationParams()
 	randomPort := fmt.Sprintf("%d", crypto.RandomIntInRange(10000, 60000))
 
 	return &domain.ServerConfig{
-		PrivateKey:          privKey,
-		PublicKey:           pubKey,
+		PrivateKey:          kp.PrivateKey,
+		PublicKey:           kp.PublicKey,
 		Address:             "172.20.0.1/16",
 		ListenPort:          randomPort,
 		Endpoint:            "",

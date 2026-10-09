@@ -9,14 +9,18 @@ import (
 	"github.com/yuki-nemurenai/amneziawg-web-dashboard/api/internal/service"
 )
 
+// AuthHandler serves /api/auth: first-time setup, login and the current
+// administrator.
 type AuthHandler struct {
 	authService service.AuthService
 }
 
+// NewAuthHandler returns an AuthHandler backed by authService.
 func NewAuthHandler(authService service.AuthService) *AuthHandler {
 	return &AuthHandler{authService: authService}
 }
 
+// GetStatus serves GET /api/auth/status.
 func (h *AuthHandler) GetStatus(w http.ResponseWriter, r *http.Request) {
 	status, err := h.authService.GetAuthStatus(r.Context())
 	if err != nil {
@@ -30,6 +34,7 @@ func (h *AuthHandler) GetStatus(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(status)
 }
 
+// Setup serves POST /api/auth/setup.
 func (h *AuthHandler) Setup(w http.ResponseWriter, r *http.Request) {
 	var req domain.SetupRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -52,6 +57,7 @@ func (h *AuthHandler) Setup(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(res)
 }
 
+// Login serves POST /api/auth/login.
 func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 	var req domain.LoginRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -73,6 +79,7 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(res)
 }
 
+// Me serves GET /api/auth/me with the administrator from the token.
 func (h *AuthHandler) Me(w http.ResponseWriter, r *http.Request) {
 	user, ok := r.Context().Value(middleware.UserContextKey).(*domain.AdminUser)
 	if !ok || user == nil {
@@ -86,6 +93,8 @@ func (h *AuthHandler) Me(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(user)
 }
 
+// ChangePassword serves POST /api/auth/change-password for the administrator
+// from the token.
 func (h *AuthHandler) ChangePassword(w http.ResponseWriter, r *http.Request) {
 	user, ok := r.Context().Value(middleware.UserContextKey).(*domain.AdminUser)
 	if !ok || user == nil {
