@@ -48,7 +48,7 @@ func (s *ipService) AllocateNextIP(subnetPrefix string, existingPeers []domain.P
 		}
 	}
 
-	return "", fmt.Errorf("no available IP addresses left in subnet %s.0/24", subnetPrefix)
+	return "", fmt.Errorf("%w: no free IP address left in subnet %s.0/24", domain.ErrConflict, subnetPrefix)
 }
 
 // ExtractSubnetPrefix returns the first three octets of an interface address,

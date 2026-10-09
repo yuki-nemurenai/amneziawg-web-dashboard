@@ -117,8 +117,8 @@ func TestSetupAdminRejectsInvalidRequest(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			svc, _ := newTestAuthService()
-			if _, err := svc.SetupAdmin(t.Context(), tt.req); err == nil {
-				t.Errorf("SetupAdmin(%+v) error = nil, want error", tt.req)
+			if _, err := svc.SetupAdmin(t.Context(), tt.req); !errors.Is(err, domain.ErrInvalidInput) {
+				t.Errorf("SetupAdmin(%+v) error = %v, want %v", tt.req, err, domain.ErrInvalidInput)
 			}
 		})
 	}
@@ -128,8 +128,9 @@ func TestSetupAdminRejectsSecondAdmin(t *testing.T) {
 	svc, _ := newTestAuthService()
 	setupAdmin(t, svc)
 
-	if _, err := svc.SetupAdmin(t.Context(), domain.SetupRequest{Username: "admin2", Password: "password123"}); err == nil {
-		t.Errorf("second SetupAdmin() error = nil, want error")
+	_, err := svc.SetupAdmin(t.Context(), domain.SetupRequest{Username: "admin2", Password: "password123"})
+	if !errors.Is(err, domain.ErrConflict) {
+		t.Errorf("second SetupAdmin() error = %v, want %v", err, domain.ErrConflict)
 	}
 }
 
@@ -181,7 +182,7 @@ func TestValidateTokenRejectsExpiredToken(t *testing.T) {
 
 	clock.now = testNow.Add(tokenLifetime + time.Second)
 
-	if _, err := svc.ValidateToken(resp.Token); err == nil {
-		t.Errorf("ValidateToken() of an expired token error = nil, want error")
+	if _, err := svc.ValidateToken(resp.Token); !errors.Is(err, domain.ErrUnauthorized) {
+		t.Errorf("ValidateToken() of an expired token error = %v, want %v", err, domain.ErrUnauthorized)
 	}
 }

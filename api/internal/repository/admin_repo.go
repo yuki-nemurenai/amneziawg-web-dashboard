@@ -54,6 +54,9 @@ func (r *postgresAdminRepo) CreateAdmin(ctx context.Context, username, passwordH
 		RETURNING id, username, created_at
 	`
 	err := r.pool.QueryRow(ctx, query, username, passwordHash, user.CreatedAt).Scan(&user.ID, &user.Username, &user.CreatedAt)
+	if isUniqueViolation(err) {
+		return nil, fmt.Errorf("%w: admin %q already exists", domain.ErrConflict, username)
+	}
 	if err != nil {
 		return nil, fmt.Errorf("insert admin %q: %w", username, err)
 	}

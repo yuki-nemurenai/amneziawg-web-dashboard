@@ -64,13 +64,19 @@ func runServer(port int, configPath string, clientsDir string, interfaceName str
 		"clients_dir", clientsDir,
 	)
 
+	env, err := loadEnvConfig(os.Getenv)
+	if err != nil {
+		slog.Error("Invalid configuration", "error", err)
+		os.Exit(1)
+	}
+
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
 	initCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 
-	pool, err := repository.InitDB(initCtx)
+	pool, err := repository.InitDB(initCtx, env.databaseURL)
 	if err != nil {
 		slog.Error("Failed to initialize PostgreSQL database pool (pgx/v5)", "error", err)
 		os.Exit(1)
@@ -91,14 +97,14 @@ func runServer(port int, configPath string, clientsDir string, interfaceName str
 	}
 
 	adminRepo := repository.NewPostgresAdminRepo(pool)
-	configRepo := repository.NewPostgresConfigRepo(initCtx, pool, configPath)
+	configRepo := repository.NewPostgresConfigRepo(initCtx, pool, configPath, env.listenPort)
 
-	authService := service.NewAuthService(adminRepo)
+	authService := service.NewAuthService(adminRepo, env.jwtSecret)
 	awgService := service.NewAWGService(initCtx, service.AWGConfig{
 		Repo:          configRepo,
 		IPService:     service.NewIPService(),
 		Commander:     system.Exec{},
-		Locator:       system.NewLocator(os.Getenv("PUBLIC_IP")),
+		Locator:       system.NewLocator(env.publicIP),
 		ClientsDir:    clientsDir,
 		InterfaceName: interfaceName,
 	})

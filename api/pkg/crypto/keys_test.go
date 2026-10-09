@@ -3,6 +3,8 @@ package crypto
 import (
 	"encoding/base64"
 	"encoding/hex"
+	"fmt"
+	"math"
 	"testing"
 )
 
@@ -46,5 +48,25 @@ func TestGenerateKeyPairPublicKeyMatchesPrivateKey(t *testing.T) {
 	}
 	if pub != kp.PublicKey {
 		t.Errorf("PublicFromPrivate(PrivateKey) = %s, want PublicKey %s", pub, kp.PublicKey)
+	}
+}
+
+func TestGenerateObfuscationParamsKeepsHeaderRangesApart(t *testing.T) {
+	// The ranges are random, so check enough of them to hit the edges: before
+	// the fix about one in a hundred overlapped.
+	for range 1000 {
+		p := GenerateObfuscationParams()
+
+		var prevHi int64
+		for i, r := range []string{p.H1, p.H2, p.H3, p.H4} {
+			var lo, hi int64
+			if _, err := fmt.Sscanf(r, "%d-%d", &lo, &hi); err != nil {
+				t.Fatalf("H%d = %q, want lo-hi: %v", i+1, r, err)
+			}
+			if lo > hi || lo <= prevHi || hi > math.MaxInt32 {
+				t.Fatalf("H%d = %q overlaps the previous range ending at %d or exceeds MaxInt32", i+1, r, prevHi)
+			}
+			prevHi = hi
+		}
 	}
 }

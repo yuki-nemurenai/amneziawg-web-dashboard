@@ -4,11 +4,12 @@ package repository
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
-	"os"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -18,25 +19,14 @@ const (
 	pingTimeout       = 3 * time.Second
 )
 
-// InitDB connects to PostgreSQL and creates the schema. It retries the
-// connection because the database container may still be starting when the API
-// starts. The connection comes from DATABASE_URL or, if it is empty, from the
-// DB_* variables.
-func InitDB(ctx context.Context) (*pgxpool.Pool, error) {
-	connStr := os.Getenv("DATABASE_URL")
-	if connStr == "" {
-		host := getEnvOrDefault("DB_HOST", "localhost")
-		port := getEnvOrDefault("DB_PORT", "5432")
-		user := getEnvOrDefault("DB_USER", "awg")
-		pass := getEnvOrDefault("DB_PASSWORD", "awgsecretpassword")
-		name := getEnvOrDefault("DB_NAME", "awg_db")
-		sslmode := getEnvOrDefault("DB_SSLMODE", "disable")
+// uniqueViolation is the SQLSTATE of a unique constraint violation.
+const uniqueViolation = "23505"
 
-		connStr = fmt.Sprintf("postgres://%s:%s@%s:%s/%s?sslmode=%s",
-			user, pass, host, port, name, sslmode)
-	}
-
-	config, err := pgxpool.ParseConfig(connStr)
+// InitDB connects to the PostgreSQL database at databaseURL and creates the
+// schema. It retries the connection because the database container may still
+// be starting when the API starts.
+func InitDB(ctx context.Context, databaseURL string) (*pgxpool.Pool, error) {
+	config, err := pgxpool.ParseConfig(databaseURL)
 	if err != nil {
 		return nil, fmt.Errorf("parse database URL: %w", err)
 	}
@@ -153,9 +143,9 @@ func migrateSchema(ctx context.Context, pool *pgxpool.Pool) error {
 	return nil
 }
 
-func getEnvOrDefault(key, fallback string) string {
-	if v := os.Getenv(key); v != "" {
-		return v
-	}
-	return fallback
+// isUniqueViolation reports whether err is a PostgreSQL unique constraint
+// violation.
+func isUniqueViolation(err error) bool {
+	var pgErr *pgconn.PgError
+	return errors.As(err, &pgErr) && pgErr.Code == uniqueViolation
 }

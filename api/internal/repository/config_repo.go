@@ -235,68 +235,7 @@ func (r *fileConfigRepo) SaveServerConfig(ctx context.Context, cfg *domain.Serve
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
-	var builder strings.Builder
-	builder.WriteString("[Interface]\n")
-	builder.WriteString(fmt.Sprintf("PrivateKey = %s\n", cfg.PrivateKey))
-	builder.WriteString(fmt.Sprintf("Address = %s\n", cfg.Address))
-	builder.WriteString(fmt.Sprintf("ListenPort = %s\n", cfg.ListenPort))
-	if cfg.Endpoint != "" {
-		builder.WriteString(fmt.Sprintf("# Endpoint = %s\n", cfg.Endpoint))
-	}
-	if cfg.LANAllowed != "" {
-		builder.WriteString(fmt.Sprintf("# LANAllowed = %s\n", cfg.LANAllowed))
-	}
-
-	if cfg.Obfuscation.Jc != "" {
-		builder.WriteString(fmt.Sprintf("Jc = %s\n", cfg.Obfuscation.Jc))
-		builder.WriteString(fmt.Sprintf("Jmin = %s\n", cfg.Obfuscation.Jmin))
-		builder.WriteString(fmt.Sprintf("Jmax = %s\n", cfg.Obfuscation.Jmax))
-		builder.WriteString(fmt.Sprintf("S1 = %s\n", cfg.Obfuscation.S1))
-		builder.WriteString(fmt.Sprintf("S2 = %s\n", cfg.Obfuscation.S2))
-		builder.WriteString(fmt.Sprintf("S3 = %s\n", cfg.Obfuscation.S3))
-		builder.WriteString(fmt.Sprintf("S4 = %s\n", cfg.Obfuscation.S4))
-		builder.WriteString(fmt.Sprintf("H1 = %s\n", cfg.Obfuscation.H1))
-		builder.WriteString(fmt.Sprintf("H2 = %s\n", cfg.Obfuscation.H2))
-		builder.WriteString(fmt.Sprintf("H3 = %s\n", cfg.Obfuscation.H3))
-		builder.WriteString(fmt.Sprintf("H4 = %s\n", cfg.Obfuscation.H4))
-		if cfg.Obfuscation.I1 != "" {
-			builder.WriteString(fmt.Sprintf("I1 = %s\n", cfg.Obfuscation.I1))
-		}
-		if cfg.Obfuscation.I2 != "" {
-			builder.WriteString(fmt.Sprintf("I2 = %s\n", cfg.Obfuscation.I2))
-		}
-		if cfg.Obfuscation.I3 != "" {
-			builder.WriteString(fmt.Sprintf("I3 = %s\n", cfg.Obfuscation.I3))
-		}
-		if cfg.Obfuscation.I4 != "" {
-			builder.WriteString(fmt.Sprintf("I4 = %s\n", cfg.Obfuscation.I4))
-		}
-		if cfg.Obfuscation.I5 != "" {
-			builder.WriteString(fmt.Sprintf("I5 = %s\n", cfg.Obfuscation.I5))
-		}
-	}
-
-	if cfg.PostUp != "" {
-		builder.WriteString(fmt.Sprintf("\nPostUp = %s\n", cfg.PostUp))
-	}
-	if cfg.PostDown != "" {
-		builder.WriteString(fmt.Sprintf("PostDown = %s\n", cfg.PostDown))
-	}
-
-	for _, peer := range cfg.Peers {
-		builder.WriteString("\n")
-		if peer.Name != "" {
-			builder.WriteString(fmt.Sprintf("# %s\n", peer.Name))
-		}
-		builder.WriteString("[Peer]\n")
-		builder.WriteString(fmt.Sprintf("PublicKey = %s\n", peer.PublicKey))
-		if peer.PresharedKey != "" {
-			builder.WriteString(fmt.Sprintf("PresharedKey = %s\n", peer.PresharedKey))
-		}
-		builder.WriteString(fmt.Sprintf("AllowedIPs = %s\n", peer.AllowedIPs))
-	}
-
-	return os.WriteFile(r.configPath, []byte(builder.String()), 0600)
+	return os.WriteFile(r.configPath, []byte(formatServerConfig(cfg)), 0600)
 }
 
 func (r *fileConfigRepo) AddPeer(ctx context.Context, peer domain.Peer) error {
@@ -307,10 +246,10 @@ func (r *fileConfigRepo) AddPeer(ctx context.Context, peer domain.Peer) error {
 
 	for _, existing := range cfg.Peers {
 		if strings.EqualFold(existing.Name, peer.Name) {
-			return fmt.Errorf("peer with name %q already exists", peer.Name)
+			return fmt.Errorf("%w: peer with name %q already exists", domain.ErrConflict, peer.Name)
 		}
 		if existing.IP == peer.IP && peer.IP != "" {
-			return fmt.Errorf("peer with IP %q already exists", peer.IP)
+			return fmt.Errorf("%w: peer with IP %q already exists", domain.ErrConflict, peer.IP)
 		}
 	}
 
@@ -359,7 +298,7 @@ func (r *fileConfigRepo) GetPeerByName(ctx context.Context, name string) (*domai
 
 func (r *fileConfigRepo) createDefaultServerConfig() *domain.ServerConfig {
 	kp := crypto.GenerateKeyPair()
-	jc, jmin, jmax, s1, s2, s3, s4, h1, h2, h3, h4 := crypto.GenerateRandomObfuscationParams()
+	obf := crypto.GenerateObfuscationParams()
 	randomPort := fmt.Sprintf("%d", crypto.RandomIntInRange(10000, 60000))
 
 	return &domain.ServerConfig{
@@ -372,17 +311,17 @@ func (r *fileConfigRepo) createDefaultServerConfig() *domain.ServerConfig {
 		LANAllowed:          "0.0.0.0/0, ::/0",
 		PersistentKeepalive: "25",
 		Obfuscation: domain.ObfuscationParams{
-			Jc:   jc,
-			Jmin: jmin,
-			Jmax: jmax,
-			S1:   s1,
-			S2:   s2,
-			S3:   s3,
-			S4:   s4,
-			H1:   h1,
-			H2:   h2,
-			H3:   h3,
-			H4:   h4,
+			Jc:   obf.Jc,
+			Jmin: obf.Jmin,
+			Jmax: obf.Jmax,
+			S1:   obf.S1,
+			S2:   obf.S2,
+			S3:   obf.S3,
+			S4:   obf.S4,
+			H1:   obf.H1,
+			H2:   obf.H2,
+			H3:   obf.H3,
+			H4:   obf.H4,
 			I1:   "<r 2><b 0x858000010001000000000669636c6f756403636f6d0000010001c00c000100010000105a00044d583737>",
 			I2:   "",
 			I3:   "",

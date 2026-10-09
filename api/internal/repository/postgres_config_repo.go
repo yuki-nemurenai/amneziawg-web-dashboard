@@ -7,18 +7,19 @@ import (
 	"log/slog"
 	"os"
 	"slices"
-	"strings"
 	"sync"
 	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+
 	"github.com/yuki-nemurenai/amneziawg-web-dashboard/api/internal/domain"
 )
 
 type postgresConfigRepo struct {
 	pool       *pgxpool.Pool
 	configPath string
+	listenPort string
 	mu         sync.Mutex // to serialize DB writes and file flushes
 }
 
@@ -27,10 +28,14 @@ type postgresConfigRepo struct {
 // because awg reads the interface settings from that file. On the first start
 // it imports an existing file, or a generated default configuration, into the
 // database.
-func NewPostgresConfigRepo(ctx context.Context, pool *pgxpool.Pool, configPath string) ConfigRepository {
+//
+// A non-empty listenPort replaces the stored port when the configuration is
+// loaded, because in Docker the published UDP port is fixed by the deployment.
+func NewPostgresConfigRepo(ctx context.Context, pool *pgxpool.Pool, configPath, listenPort string) ConfigRepository {
 	repo := &postgresConfigRepo{
 		pool:       pool,
 		configPath: configPath,
+		listenPort: listenPort,
 	}
 
 	cfg, err := repo.LoadServerConfig(ctx)
@@ -94,8 +99,8 @@ func (r *postgresConfigRepo) LoadServerConfig(ctx context.Context) (*domain.Serv
 		return nil, fmt.Errorf("load server config: %w", err)
 	}
 
-	if port := os.Getenv("AWG_PORT"); port != "" {
-		cfg.ListenPort = port
+	if r.listenPort != "" {
+		cfg.ListenPort = r.listenPort
 	}
 
 	rows, err := r.pool.Query(ctx, `SELECT name, public_key, preshared_key, ip, allowed_ips FROM peers ORDER BY id ASC`)
@@ -164,7 +169,11 @@ func (r *postgresConfigRepo) AddPeer(ctx context.Context, peer domain.Peer) erro
 		INSERT INTO peers (name, public_key, preshared_key, ip, allowed_ips)
 		VALUES ($1, $2, $3, $4, $5)
 	`
-	if _, err := r.pool.Exec(ctx, query, peer.Name, peer.PublicKey, peer.PresharedKey, peer.IP, peer.AllowedIPs); err != nil {
+	_, err := r.pool.Exec(ctx, query, peer.Name, peer.PublicKey, peer.PresharedKey, peer.IP, peer.AllowedIPs)
+	if isUniqueViolation(err) {
+		return fmt.Errorf("%w: peer with this name, key or IP already exists", domain.ErrConflict)
+	}
+	if err != nil {
 		return fmt.Errorf("insert peer %q: %w", peer.Name, err)
 	}
 
@@ -204,65 +213,7 @@ func (r *postgresConfigRepo) syncDiskNoLock(ctx context.Context) error {
 }
 
 func (r *postgresConfigRepo) flushToDisk(cfg *domain.ServerConfig) error {
-	var builder strings.Builder
-	builder.WriteString("[Interface]\n")
-	builder.WriteString(fmt.Sprintf("PrivateKey = %s\n", cfg.PrivateKey))
-	builder.WriteString(fmt.Sprintf("Address = %s\n", cfg.Address))
-	builder.WriteString(fmt.Sprintf("ListenPort = %s\n", cfg.ListenPort))
-	if cfg.Endpoint != "" {
-		builder.WriteString(fmt.Sprintf("# Endpoint = %s\n", cfg.Endpoint))
-	}
-	if cfg.LANAllowed != "" {
-		builder.WriteString(fmt.Sprintf("# LANAllowed = %s\n", cfg.LANAllowed))
-	}
-
-	if cfg.Obfuscation.Jc != "" {
-		builder.WriteString(fmt.Sprintf("Jc = %s\n", cfg.Obfuscation.Jc))
-		builder.WriteString(fmt.Sprintf("Jmin = %s\n", cfg.Obfuscation.Jmin))
-		builder.WriteString(fmt.Sprintf("Jmax = %s\n", cfg.Obfuscation.Jmax))
-		builder.WriteString(fmt.Sprintf("S1 = %s\n", cfg.Obfuscation.S1))
-		builder.WriteString(fmt.Sprintf("S2 = %s\n", cfg.Obfuscation.S2))
-		builder.WriteString(fmt.Sprintf("S3 = %s\n", cfg.Obfuscation.S3))
-		builder.WriteString(fmt.Sprintf("S4 = %s\n", cfg.Obfuscation.S4))
-		builder.WriteString(fmt.Sprintf("H1 = %s\n", cfg.Obfuscation.H1))
-		builder.WriteString(fmt.Sprintf("H2 = %s\n", cfg.Obfuscation.H2))
-		builder.WriteString(fmt.Sprintf("H3 = %s\n", cfg.Obfuscation.H3))
-		builder.WriteString(fmt.Sprintf("H4 = %s\n", cfg.Obfuscation.H4))
-		if cfg.Obfuscation.I1 != "" {
-			builder.WriteString(fmt.Sprintf("I1 = %s\n", cfg.Obfuscation.I1))
-		}
-		if cfg.Obfuscation.I2 != "" {
-			builder.WriteString(fmt.Sprintf("I2 = %s\n", cfg.Obfuscation.I2))
-		}
-		if cfg.Obfuscation.I3 != "" {
-			builder.WriteString(fmt.Sprintf("I3 = %s\n", cfg.Obfuscation.I3))
-		}
-		if cfg.Obfuscation.I4 != "" {
-			builder.WriteString(fmt.Sprintf("I4 = %s\n", cfg.Obfuscation.I4))
-		}
-		if cfg.Obfuscation.I5 != "" {
-			builder.WriteString(fmt.Sprintf("I5 = %s\n", cfg.Obfuscation.I5))
-		}
-	}
-
-	if cfg.PostUp != "" {
-		builder.WriteString(fmt.Sprintf("\nPostUp = %s\n", cfg.PostUp))
-	}
-	if cfg.PostDown != "" {
-		builder.WriteString(fmt.Sprintf("PostDown = %s\n", cfg.PostDown))
-	}
-
-	for _, peer := range cfg.Peers {
-		builder.WriteString("\n[Peer]\n")
-		builder.WriteString(fmt.Sprintf("# Name = %s\n", peer.Name))
-		if peer.PresharedKey != "" {
-			builder.WriteString(fmt.Sprintf("PresharedKey = %s\n", peer.PresharedKey))
-		}
-		builder.WriteString(fmt.Sprintf("PublicKey = %s\n", peer.PublicKey))
-		builder.WriteString(fmt.Sprintf("AllowedIPs = %s\n", peer.AllowedIPs))
-	}
-
-	return os.WriteFile(r.configPath, []byte(builder.String()), 0600)
+	return os.WriteFile(r.configPath, []byte(formatServerConfig(cfg)), 0600)
 }
 
 func (r *postgresConfigRepo) RecordTraffic(ctx context.Context, rxBytes, txBytes int64) error {

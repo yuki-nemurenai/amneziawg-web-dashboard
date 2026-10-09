@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"os"
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
@@ -23,7 +22,7 @@ const (
 
 // errInvalidCredentials does not tell which of the two was wrong, so the
 // login form cannot be used to find existing usernames.
-var errInvalidCredentials = errors.New("invalid username or password")
+var errInvalidCredentials = fmt.Errorf("%w: invalid username or password", domain.ErrUnauthorized)
 
 // AuthService registers the administrator and issues the JWTs that protect
 // the API.
@@ -51,15 +50,11 @@ type tokenClaims struct {
 	jwt.RegisteredClaims
 }
 
-// NewAuthService returns an AuthService that signs tokens with JWT_SECRET.
-func NewAuthService(adminRepo repository.AdminRepository) AuthService {
-	secret := os.Getenv("JWT_SECRET")
-	if secret == "" {
-		secret = "awg-secret-jwt-key-change-in-production-12345"
-	}
+// NewAuthService returns an AuthService that signs tokens with jwtSecret.
+func NewAuthService(adminRepo repository.AdminRepository, jwtSecret []byte) AuthService {
 	return &authService{
 		adminRepo: adminRepo,
-		jwtSecret: []byte(secret),
+		jwtSecret: jwtSecret,
 		now:       time.Now,
 	}
 }
@@ -82,14 +77,14 @@ func (s *authService) SetupAdmin(ctx context.Context, req domain.SetupRequest) (
 	}
 	if count > 0 {
 		slog.Warn("AuthService: initial setup attempted when admins already exist")
-		return nil, errors.New("initial setup has already been completed")
+		return nil, fmt.Errorf("%w: initial setup has already been completed", domain.ErrConflict)
 	}
 
 	if len(req.Username) < minUsernameLength {
-		return nil, fmt.Errorf("username must be at least %d characters", minUsernameLength)
+		return nil, fmt.Errorf("%w: username must be at least %d characters", domain.ErrInvalidInput, minUsernameLength)
 	}
 	if len(req.Password) < minPasswordLength {
-		return nil, fmt.Errorf("password must be at least %d characters", minPasswordLength)
+		return nil, fmt.Errorf("%w: password must be at least %d characters", domain.ErrInvalidInput, minPasswordLength)
 	}
 
 	hash, err := bcrypt.GenerateFromPassword([]byte(req.Password), bcrypt.DefaultCost)
@@ -116,9 +111,12 @@ func (s *authService) SetupAdmin(ctx context.Context, req domain.SetupRequest) (
 
 func (s *authService) Login(ctx context.Context, req domain.LoginRequest) (*domain.AuthResponse, error) {
 	user, err := s.adminRepo.GetAdminByUsername(ctx, req.Username)
-	if err != nil {
-		slog.Warn("AuthService: login failed — user not found", "username", req.Username, "error", err)
+	if errors.Is(err, domain.ErrNotFound) {
+		slog.Warn("AuthService: login failed — user not found", "username", req.Username)
 		return nil, errInvalidCredentials
+	}
+	if err != nil {
+		return nil, err
 	}
 
 	if err := bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(req.Password)); err != nil {
@@ -155,7 +153,7 @@ func (s *authService) ValidateToken(tokenString string) (*domain.AdminUser, erro
 
 	if err != nil || !token.Valid {
 		slog.Warn("AuthService: JWT token validation failed", "error", err)
-		return nil, errors.New("invalid or expired authentication token")
+		return nil, fmt.Errorf("%w: invalid or expired authentication token", domain.ErrUnauthorized)
 	}
 
 	return &domain.AdminUser{
@@ -166,7 +164,7 @@ func (s *authService) ValidateToken(tokenString string) (*domain.AdminUser, erro
 
 func (s *authService) ChangePassword(ctx context.Context, userID int, req domain.ChangePasswordRequest) error {
 	if len(req.NewPassword) < minPasswordLength {
-		return fmt.Errorf("new password must be at least %d characters", minPasswordLength)
+		return fmt.Errorf("%w: new password must be at least %d characters", domain.ErrInvalidInput, minPasswordLength)
 	}
 
 	user, err := s.adminRepo.GetAdminByID(ctx, userID)

@@ -206,18 +206,17 @@ func TestEndpoint(t *testing.T) {
 		wantAuto   bool
 	}{
 		{name: "host and port", configured: "vpn.example.com:1234", want: "vpn.example.com:1234"},
-		{name: "host without port", configured: " vpn.example.com ", want: "vpn.example.com:8443"},
+		{name: "host without port gets listen port", configured: " vpn.example.com ", want: "vpn.example.com:8443"},
 		{name: "detected public IP", publicIP: "203.0.113.7", want: "203.0.113.7:8443", wantAuto: true},
 		{name: "detection fails", want: ""},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			t.Setenv("AWG_PORT", "8443")
 			svc := newTestAWGService(&fakeConfigRepo{}, &fakeCommander{}, fakeLocator{ip: tt.publicIP})
 
-			got, auto := svc.endpoint(t.Context(), tt.configured)
+			got, auto := svc.endpoint(t.Context(), tt.configured, "8443")
 			if got != tt.want || auto != tt.wantAuto {
-				t.Errorf("endpoint(%q) = %q, %v, want %q, %v", tt.configured, got, auto, tt.want, tt.wantAuto)
+				t.Errorf("endpoint(%q, 8443) = %q, %v, want %q, %v", tt.configured, got, auto, tt.want, tt.wantAuto)
 			}
 		})
 	}
@@ -302,4 +301,21 @@ func TestGetSystemStatusReportsStoppedWithoutAWG(t *testing.T) {
 // unix formats t as the Unix seconds that awg show dump prints.
 func unix(t time.Time) string {
 	return strconv.FormatInt(t.Unix(), 10)
+}
+
+func TestCreateClientRejectsEmptyName(t *testing.T) {
+	svc := newTestAWGService(&fakeConfigRepo{}, &fakeCommander{}, fakeLocator{})
+
+	_, err := svc.CreateClient(t.Context(), domain.CreateClientRequest{Name: "  "})
+	if !errors.Is(err, domain.ErrInvalidInput) {
+		t.Errorf("CreateClient(blank name) error = %v, want %v", err, domain.ErrInvalidInput)
+	}
+}
+
+func TestDeleteClientReportsMissingClientAsNotFound(t *testing.T) {
+	svc := newTestAWGService(&fakeConfigRepo{}, &fakeCommander{}, fakeLocator{})
+
+	if err := svc.DeleteClient(t.Context(), "nobody"); !errors.Is(err, domain.ErrNotFound) {
+		t.Errorf("DeleteClient(nobody) error = %v, want %v", err, domain.ErrNotFound)
+	}
 }

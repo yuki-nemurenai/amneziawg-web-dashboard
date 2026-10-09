@@ -7,9 +7,22 @@ import (
 	"time"
 )
 
-// ErrNotFound reports that a requested admin, peer or server configuration
-// does not exist. Repositories wrap it so callers can check it with errors.Is.
-var ErrNotFound = errors.New("record not found")
+// Errors of the domain. Services and repositories wrap them with details, and
+// the HTTP handlers turn them into status codes with errors.Is; any other error
+// is a server fault.
+var (
+	// ErrNotFound reports that a requested admin, peer or server
+	// configuration does not exist.
+	ErrNotFound = errors.New("not found")
+	// ErrInvalidInput reports a request that breaks a rule, such as a too short
+	// password.
+	ErrInvalidInput = errors.New("invalid input")
+	// ErrConflict reports a request that clashes with the stored state, such
+	// as a second administrator or a duplicate client name.
+	ErrConflict = errors.New("conflict")
+	// ErrUnauthorized reports wrong credentials or an invalid token.
+	ErrUnauthorized = errors.New("unauthorized")
+)
 
 // AdminUser is an administrator of the dashboard. PasswordHash is never
 // serialized, so the struct can be returned by the API as is.

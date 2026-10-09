@@ -114,8 +114,8 @@ func TestFileConfigRepoAddPeerRejectsDuplicates(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if err := newSampleRepo(t).AddPeer(t.Context(), tt.peer); err == nil {
-				t.Errorf("AddPeer(%+v) error = nil, want error", tt.peer)
+			if err := newSampleRepo(t).AddPeer(t.Context(), tt.peer); !errors.Is(err, domain.ErrConflict) {
+				t.Errorf("AddPeer(%+v) error = %v, want %v", tt.peer, err, domain.ErrConflict)
 			}
 		})
 	}

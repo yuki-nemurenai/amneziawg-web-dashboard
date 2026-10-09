@@ -224,7 +224,7 @@ func (s *awgService) GetClients(ctx context.Context) ([]domain.Peer, error) {
 func (s *awgService) CreateClient(ctx context.Context, req domain.CreateClientRequest) (*domain.ClientResponse, error) {
 	name := strings.TrimSpace(req.Name)
 	if name == "" {
-		return nil, errors.New("client name cannot be empty")
+		return nil, fmt.Errorf("%w: client name is empty", domain.ErrInvalidInput)
 	}
 
 	cfg, err := s.repo.LoadServerConfig(ctx)
@@ -369,7 +369,7 @@ func (s *awgService) GetSystemStatus(ctx context.Context) (*domain.SystemStatus,
 		slog.Debug("Server location is unknown", "error", err)
 	}
 
-	endpoint, autoEndpoint := s.endpoint(ctx, cfg.Endpoint)
+	endpoint, autoEndpoint := s.endpoint(ctx, cfg.Endpoint, cfg.ListenPort)
 
 	_, lookErr := s.cmd.LookPath("awg")
 
@@ -414,10 +414,11 @@ func (s *awgService) interfaceMode(ctx context.Context) string {
 }
 
 // endpoint returns the address clients connect to. A configured endpoint
-// without a port gets AWG_PORT. An empty one falls back to the detected public
-// IP, and auto reports that fallback; it stays empty if detection fails.
-func (s *awgService) endpoint(ctx context.Context, configured string) (endpoint string, auto bool) {
-	port := os.Getenv("AWG_PORT")
+// without a port gets listenPort, the port the server listens on. An empty one
+// falls back to the detected public IP, and auto reports that fallback; it
+// stays empty if detection fails.
+func (s *awgService) endpoint(ctx context.Context, configured, listenPort string) (endpoint string, auto bool) {
+	port := listenPort
 	if port == "" {
 		port = defaultAWGPort
 	}
@@ -495,68 +496,30 @@ func parseDump(output []byte) map[string]peerRuntimeStats {
 	return stats
 }
 
+// buildClientConfig returns the configuration file of a client. Unless the
+// server limits clients to LAN routes, they send all their traffic through the
+// tunnel.
 func (s *awgService) buildClientConfig(ctx context.Context, serverCfg *domain.ServerConfig, clientPrivKey string, psk string, clientIP string) string {
-	var sb strings.Builder
-	sb.WriteString("[Interface]\n")
-	sb.WriteString(fmt.Sprintf("Address = %s/32\n", clientIP))
-	if serverCfg.DNS != "" {
-		sb.WriteString(fmt.Sprintf("DNS = %s\n", serverCfg.DNS))
-	}
-	sb.WriteString(fmt.Sprintf("PrivateKey = %s\n", clientPrivKey))
-
-	if serverCfg.Obfuscation.Jc != "" {
-		sb.WriteString(fmt.Sprintf("Jc = %s\n", serverCfg.Obfuscation.Jc))
-		sb.WriteString(fmt.Sprintf("Jmin = %s\n", serverCfg.Obfuscation.Jmin))
-		sb.WriteString(fmt.Sprintf("Jmax = %s\n", serverCfg.Obfuscation.Jmax))
-		sb.WriteString(fmt.Sprintf("S1 = %s\n", serverCfg.Obfuscation.S1))
-		sb.WriteString(fmt.Sprintf("S2 = %s\n", serverCfg.Obfuscation.S2))
-		sb.WriteString(fmt.Sprintf("S3 = %s\n", serverCfg.Obfuscation.S3))
-		sb.WriteString(fmt.Sprintf("S4 = %s\n", serverCfg.Obfuscation.S4))
-		sb.WriteString(fmt.Sprintf("H1 = %s\n", serverCfg.Obfuscation.H1))
-		sb.WriteString(fmt.Sprintf("H2 = %s\n", serverCfg.Obfuscation.H2))
-		sb.WriteString(fmt.Sprintf("H3 = %s\n", serverCfg.Obfuscation.H3))
-		sb.WriteString(fmt.Sprintf("H4 = %s\n", serverCfg.Obfuscation.H4))
-		if serverCfg.Obfuscation.I1 != "" {
-			sb.WriteString(fmt.Sprintf("I1 = %s\n", serverCfg.Obfuscation.I1))
-		}
-		if serverCfg.Obfuscation.I2 != "" {
-			sb.WriteString(fmt.Sprintf("I2 = %s\n", serverCfg.Obfuscation.I2))
-		}
-		if serverCfg.Obfuscation.I3 != "" {
-			sb.WriteString(fmt.Sprintf("I3 = %s\n", serverCfg.Obfuscation.I3))
-		}
-		if serverCfg.Obfuscation.I4 != "" {
-			sb.WriteString(fmt.Sprintf("I4 = %s\n", serverCfg.Obfuscation.I4))
-		}
-		if serverCfg.Obfuscation.I5 != "" {
-			sb.WriteString(fmt.Sprintf("I5 = %s\n", serverCfg.Obfuscation.I5))
-		}
-	}
-
-	sb.WriteString("\n[Peer]\n")
-	sb.WriteString(fmt.Sprintf("PublicKey = %s\n", serverCfg.PublicKey))
-	if psk != "" {
-		sb.WriteString(fmt.Sprintf("PresharedKey = %s\n", psk))
-	}
-
 	allowed := strings.TrimSpace(serverCfg.LANAllowed)
 	if allowed == "" || allowed == allTrafficIPs || allowed == "0.0.0.0/0" {
 		allowed = allTrafficIPs
-	} else {
-		clientSubnet := clientIP + "/32"
-		if !strings.Contains(allowed, clientSubnet) {
-			allowed = clientSubnet + ", " + allowed
-		}
-	}
-	sb.WriteString(fmt.Sprintf("AllowedIPs = %s\n", allowed))
-
-	endpoint, _ := s.endpoint(ctx, serverCfg.Endpoint)
-	sb.WriteString(fmt.Sprintf("Endpoint = %s\n", endpoint))
-	if serverCfg.PersistentKeepalive != "" {
-		sb.WriteString(fmt.Sprintf("PersistentKeepalive = %s\n", serverCfg.PersistentKeepalive))
+	} else if clientSubnet := clientIP + "/32"; !strings.Contains(allowed, clientSubnet) {
+		allowed = clientSubnet + ", " + allowed
 	}
 
-	return sb.String()
+	endpoint, _ := s.endpoint(ctx, serverCfg.Endpoint, serverCfg.ListenPort)
+
+	return repository.FormatClientConfig(repository.ClientConfig{
+		Address:             clientIP + "/32",
+		DNS:                 serverCfg.DNS,
+		PrivateKey:          clientPrivKey,
+		Obfuscation:         serverCfg.Obfuscation,
+		ServerPublicKey:     serverCfg.PublicKey,
+		PresharedKey:        psk,
+		AllowedIPs:          allowed,
+		Endpoint:            endpoint,
+		PersistentKeepalive: serverCfg.PersistentKeepalive,
+	})
 }
 
 // syncRuntime brings the live interface, its address, peers and NAT rules in
@@ -627,9 +590,8 @@ func (s *awgService) syncRuntime(ctx context.Context) {
 	}
 }
 
-// syncConf writes the interface section and peers that awg syncconf accepts,
-// without the wg-quick settings such as Address, to a temporary file and
-// applies it.
+// syncConf applies cfg to the interface with awg syncconf, which reads the
+// configuration from a file.
 func (s *awgService) syncConf(ctx context.Context, cfg *domain.ServerConfig) error {
 	tmpFile, err := os.CreateTemp("", "awg-sync-*.conf")
 	if err != nil {
@@ -637,51 +599,7 @@ func (s *awgService) syncConf(ctx context.Context, cfg *domain.ServerConfig) err
 	}
 	defer os.Remove(tmpFile.Name())
 
-	var sb strings.Builder
-	sb.WriteString("[Interface]\n")
-	sb.WriteString(fmt.Sprintf("PrivateKey = %s\n", cfg.PrivateKey))
-	if cfg.ListenPort != "" {
-		sb.WriteString(fmt.Sprintf("ListenPort = %s\n", cfg.ListenPort))
-	}
-	if cfg.Obfuscation.Jc != "" {
-		sb.WriteString(fmt.Sprintf("Jc = %s\n", cfg.Obfuscation.Jc))
-		sb.WriteString(fmt.Sprintf("Jmin = %s\n", cfg.Obfuscation.Jmin))
-		sb.WriteString(fmt.Sprintf("Jmax = %s\n", cfg.Obfuscation.Jmax))
-		sb.WriteString(fmt.Sprintf("S1 = %s\n", cfg.Obfuscation.S1))
-		sb.WriteString(fmt.Sprintf("S2 = %s\n", cfg.Obfuscation.S2))
-		sb.WriteString(fmt.Sprintf("S3 = %s\n", cfg.Obfuscation.S3))
-		sb.WriteString(fmt.Sprintf("S4 = %s\n", cfg.Obfuscation.S4))
-		sb.WriteString(fmt.Sprintf("H1 = %s\n", cfg.Obfuscation.H1))
-		sb.WriteString(fmt.Sprintf("H2 = %s\n", cfg.Obfuscation.H2))
-		sb.WriteString(fmt.Sprintf("H3 = %s\n", cfg.Obfuscation.H3))
-		sb.WriteString(fmt.Sprintf("H4 = %s\n", cfg.Obfuscation.H4))
-		if cfg.Obfuscation.I1 != "" {
-			sb.WriteString(fmt.Sprintf("I1 = %s\n", cfg.Obfuscation.I1))
-		}
-		if cfg.Obfuscation.I2 != "" {
-			sb.WriteString(fmt.Sprintf("I2 = %s\n", cfg.Obfuscation.I2))
-		}
-		if cfg.Obfuscation.I3 != "" {
-			sb.WriteString(fmt.Sprintf("I3 = %s\n", cfg.Obfuscation.I3))
-		}
-		if cfg.Obfuscation.I4 != "" {
-			sb.WriteString(fmt.Sprintf("I4 = %s\n", cfg.Obfuscation.I4))
-		}
-		if cfg.Obfuscation.I5 != "" {
-			sb.WriteString(fmt.Sprintf("I5 = %s\n", cfg.Obfuscation.I5))
-		}
-	}
-
-	for _, peer := range cfg.Peers {
-		sb.WriteString("\n[Peer]\n")
-		sb.WriteString(fmt.Sprintf("PublicKey = %s\n", peer.PublicKey))
-		if peer.PresharedKey != "" {
-			sb.WriteString(fmt.Sprintf("PresharedKey = %s\n", peer.PresharedKey))
-		}
-		sb.WriteString(fmt.Sprintf("AllowedIPs = %s\n", peer.AllowedIPs))
-	}
-
-	if _, err := tmpFile.WriteString(sb.String()); err != nil {
+	if _, err := tmpFile.WriteString(repository.FormatSyncConfig(cfg)); err != nil {
 		tmpFile.Close()
 		return fmt.Errorf("write syncconf file: %w", err)
 	}
