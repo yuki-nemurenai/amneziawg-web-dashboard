@@ -28,7 +28,7 @@ services:
         ipv4_address: 172.30.0.3
 
   awg-api:
-    image: ghcr.io/yuki-nemurenai/amneziawg-web-dashboard/api:0.2.0
+    image: ghcr.io/yuki-nemurenai/amneziawg-web-dashboard/api:0.2.1
     container_name: awg-api
     restart: unless-stopped
     cap_add:
@@ -75,7 +75,7 @@ services:
         ipv4_address: 172.30.0.4
 
   awg-ui:
-    image: ghcr.io/yuki-nemurenai/amneziawg-web-dashboard/ui:0.2.0
+    image: ghcr.io/yuki-nemurenai/amneziawg-web-dashboard/ui:0.2.1
     container_name: awg-ui
     restart: unless-stopped
     healthcheck:

@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.2.1](https://github.com/yuki-nemurenai/amneziawg-web-dashboard/compare/v0.2.0...v0.2.1) (2026-10-09)
+
+### Bug Fixes
+
+- require secrets and map domain errors to HTTP statuses ([eb5ee9f](https://github.com/yuki-nemurenai/amneziawg-web-dashboard/commit/eb5ee9f9b455a80cb55a39ae6420cd63552f4877))
+
+### Documentation
+
+- restyle README badges ([5d4c20c](https://github.com/yuki-nemurenai/amneziawg-web-dashboard/commit/5d4c20ca3a0ba36636dd98329a740b9f40864cfa))
+
 ## [0.2.0](https://github.com/yuki-nemurenai/amneziawg-web-dashboard/compare/v0.1.1...v0.2.0) (2026-10-09)
 
 ### Features
