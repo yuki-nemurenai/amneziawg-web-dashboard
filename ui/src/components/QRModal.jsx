@@ -1,11 +1,13 @@
 import React, { useEffect, useState } from 'react';
 import { X, QrCode, Download, Copy, Check } from 'lucide-react';
+import { copyText } from '../utils/clipboard';
 
 export default function QRModal({ client, onClose }) {
   const [qrCodeData, setQrCodeData] = useState('');
   const [loading, setLoading] = useState(true);
   // copied is the format whose text is in the clipboard: 'awg' or 'amnezia'.
   const [copied, setCopied] = useState('');
+  const [copyError, setCopyError] = useState('');
 
   const token = localStorage.getItem('awg_jwt_token') || '';
 
@@ -32,18 +34,24 @@ export default function QRModal({ client, onClose }) {
   }, [client, token]);
 
   const copyConfigText = async (format) => {
+    setCopied('');
+    setCopyError('');
     try {
       const res = await fetch(`/api/clients/${encodeURIComponent(client.name)}/download?format=${format}`, {
         headers: {
           Authorization: token ? `Bearer ${token}` : '',
         },
       });
+      if (!res.ok) {
+        setCopyError('Could not load the configuration. Please try again.');
+        return;
+      }
       const text = await res.text();
-      await navigator.clipboard.writeText(text);
+      await copyText(text);
       setCopied(format);
       setTimeout(() => setCopied(''), 2000);
-    } catch (err) {
-      console.error(err);
+    } catch {
+      setCopyError('Could not copy the configuration. Download the file instead.');
     }
   };
 
@@ -94,6 +102,9 @@ export default function QRModal({ client, onClose }) {
           </p>
 
           <div className="space-y-3 w-full">
+            {copyError && (
+              <p role="alert" className="text-xs text-rose-600 dark:text-rose-400">{copyError}</p>
+            )}
             {formats.map(({ format, app, ext }) => (
               <div key={format}>
                 <p className="text-[11px] font-semibold text-slate-500 dark:text-slate-400 mb-1.5">{app}</p>

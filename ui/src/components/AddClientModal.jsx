@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { X, UserPlus, Sparkles, Copy, Check, Download, ShieldCheck } from 'lucide-react';
+import { copyText } from '../utils/clipboard';
 
 export default function AddClientModal({ onClose, onSubmit }) {
   const [name, setName] = useState('');
@@ -31,11 +32,17 @@ export default function AddClientModal({ onClose, onSubmit }) {
 
   // field is config_text for the AmneziaWG .conf file or amnezia_config for
   // the vpn:// key of the AmneziaVPN app.
-  const copyConfigText = (field) => {
+  const copyConfigText = async (field) => {
+    setCopied('');
+    setError('');
     if (createdClient?.[field]) {
-      navigator.clipboard.writeText(createdClient[field]);
-      setCopied(field);
-      setTimeout(() => setCopied(''), 2000);
+      try {
+        await copyText(createdClient[field]);
+        setCopied(field);
+        setTimeout(() => setCopied(''), 2000);
+      } catch {
+        setError('Could not copy the configuration. Download the file instead.');
+      }
     }
   };
 
