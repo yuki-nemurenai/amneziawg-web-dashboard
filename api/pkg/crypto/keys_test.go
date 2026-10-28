@@ -70,3 +70,38 @@ func TestGenerateObfuscationParamsKeepsHeaderRangesApart(t *testing.T) {
 		}
 	}
 }
+
+func TestGenerateObfuscationParamsSuitsHeaderProtection(t *testing.T) {
+	for range 100 {
+		p := GenerateObfuscationParams()
+		if !IsKey(p.HeaderProtectionKey) {
+			t.Fatalf("HeaderProtectionKey = %q, want a base64 32-byte key", p.HeaderProtectionKey)
+		}
+		for i, s := range []string{p.S1, p.S2, p.S3, p.S4} {
+			var n int
+			if _, err := fmt.Sscanf(s, "%d", &n); err != nil || n < MinHeaderProtectionPadding {
+				t.Fatalf("S%d = %q, want at least %d for header protection", i+1, s, MinHeaderProtectionPadding)
+			}
+		}
+	}
+}
+
+func TestIsKey(t *testing.T) {
+	tests := []struct {
+		name string
+		key  string
+		want bool
+	}{
+		{name: "generated key", key: GenerateHeaderProtectionKey(), want: true},
+		{name: "empty", key: "", want: false},
+		{name: "not base64", key: "not-base64!", want: false},
+		{name: "short key", key: base64.StdEncoding.EncodeToString(make([]byte, 16)), want: false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := IsKey(tt.key); got != tt.want {
+				t.Errorf("IsKey(%q) = %v, want %v", tt.key, got, tt.want)
+			}
+		})
+	}
+}

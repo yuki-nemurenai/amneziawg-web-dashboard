@@ -170,6 +170,24 @@ func (r *fileConfigRepo) LoadServerConfig(ctx context.Context) (*domain.ServerCo
 				cfg.LANAllowed = val
 			case "I5":
 				cfg.Obfuscation.I5 = val
+			case "HeaderProtectionKey":
+				cfg.Obfuscation.HeaderProtectionKey = val
+			case "ContentPaddingAddition":
+				cfg.Obfuscation.ContentPaddingAddition = val
+			case "RekeyAfterTime":
+				cfg.Obfuscation.RekeyAfterTime = val
+			case "RekeyTimeout":
+				cfg.Obfuscation.RekeyTimeout = val
+			case "RejectAfterTime":
+				cfg.Obfuscation.RejectAfterTime = val
+			case "KeepaliveTimeout":
+				cfg.Obfuscation.KeepaliveTimeout = val
+			case "MaxHandshakeAttempts":
+				cfg.Obfuscation.MaxHandshakeAttempts = val
+			case "RandomTrailers":
+				cfg.Obfuscation.RandomTrailers = val
+			case "DisableCookies":
+				cfg.Obfuscation.DisableCookies = val
 			}
 		} else if currentSection == "peer" && currentPeer != nil {
 			switch key {
@@ -309,7 +327,9 @@ func (r *fileConfigRepo) createDefaultServerConfig() *domain.ServerConfig {
 		Endpoint:            "",
 		DNS:                 "1.1.1.1, 1.0.0.1",
 		LANAllowed:          "0.0.0.0/0, ::/0",
-		PersistentKeepalive: "25",
+		PersistentKeepalive: "25-35",
+		// The AmneziaWG 3.1 settings below, except the random header
+		// protection key, are the defaults of the AmneziaVPN app.
 		Obfuscation: domain.ObfuscationParams{
 			Jc:   obf.Jc,
 			Jmin: obf.Jmin,
@@ -327,6 +347,15 @@ func (r *fileConfigRepo) createDefaultServerConfig() *domain.ServerConfig {
 			I3:   "",
 			I4:   "",
 			I5:   "",
+
+			HeaderProtectionKey:  obf.HeaderProtectionKey,
+			RekeyAfterTime:       "100-120",
+			RekeyTimeout:         "3-7",
+			RejectAfterTime:      "150-180",
+			KeepaliveTimeout:     "5-15",
+			MaxHandshakeAttempts: "15-20",
+			RandomTrailers:       "on",
+			DisableCookies:       "on",
 		},
 		Peers: []domain.Peer{},
 	}

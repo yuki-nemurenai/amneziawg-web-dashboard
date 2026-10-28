@@ -161,9 +161,13 @@ export default function ClientList({ clients, searchTerm, onShowQR, onDeleteClie
                         <QrCode className="w-4 h-4" />
                         <span>QR</span>
                       </ActionButton>
-                      <ActionButton onClick={() => onDownloadConfig(client.name)} title="Download .conf file" tone="primary">
+                      <ActionButton onClick={() => onDownloadConfig(client.name, 'awg')} title="Download AmneziaWG .conf file" tone="primary">
                         <Download className="w-4 h-4" />
-                        <span>Config</span>
+                        <span>.conf</span>
+                      </ActionButton>
+                      <ActionButton onClick={() => onDownloadConfig(client.name, 'amnezia')} title="Download AmneziaVPN .vpn file" tone="primary">
+                        <Download className="w-4 h-4" />
+                        <span>.vpn</span>
                       </ActionButton>
                       <ActionButton onClick={() => setDeleteConfirm(client.name)} title="Delete Client" tone="danger">
                         <Trash2 className="w-4 h-4" />

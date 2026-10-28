@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
-import { X, Save, Check, Shield } from 'lucide-react';
+import { X, Save, Check, Shield, KeyRound, Sparkles } from 'lucide-react';
 import { generateQUICPayload } from '../utils/quicGenerator';
+import { AWG3_DEFAULTS, AWG3_RANGE_FIELDS, AWG3_SWITCH_FIELDS, MIN_HEADER_PROTECTION_PADDING, generateHeaderProtectionKey } from '../utils/awg3';
 
 export default function AmneziaConfigModal({ serverConfig, onClose, onSave }) {
   const [formData, setFormData] = useState({
@@ -21,6 +22,17 @@ export default function AmneziaConfigModal({ serverConfig, onClose, onSave }) {
       i3: serverConfig?.obfuscation?.i3 || '',
       i4: serverConfig?.obfuscation?.i4 || '',
       i5: serverConfig?.obfuscation?.i5 || '',
+      // AmneziaWG 3.1 settings stay empty unless set: filling them in silently
+      // would disconnect clients that still run an older profile.
+      header_protection_key: serverConfig?.obfuscation?.header_protection_key ?? '',
+      content_padding_addition: serverConfig?.obfuscation?.content_padding_addition ?? '',
+      rekey_after_time: serverConfig?.obfuscation?.rekey_after_time ?? '',
+      rekey_timeout: serverConfig?.obfuscation?.rekey_timeout ?? '',
+      reject_after_time: serverConfig?.obfuscation?.reject_after_time ?? '',
+      keepalive_timeout: serverConfig?.obfuscation?.keepalive_timeout ?? '',
+      max_handshake_attempts: serverConfig?.obfuscation?.max_handshake_attempts ?? '',
+      random_trailers: serverConfig?.obfuscation?.random_trailers ?? '',
+      disable_cookies: serverConfig?.obfuscation?.disable_cookies ?? '',
     },
   });
 
@@ -37,6 +49,19 @@ export default function AmneziaConfigModal({ serverConfig, onClose, onSave }) {
       ...prev,
       obfuscation: { ...prev.obfuscation, [field]: val },
     }));
+  };
+
+  // Fills in the AmneziaWG 3.1 settings of the AmneziaVPN app and widens
+  // S1–S4 to the padding that header protection needs.
+  const applyAwg3Defaults = () => {
+    setFormData((prev) => {
+      const obf = { ...prev.obfuscation, ...AWG3_DEFAULTS };
+      if (!obf.header_protection_key) obf.header_protection_key = generateHeaderProtectionKey();
+      for (const sKey of ['s1', 's2', 's3', 's4']) {
+        if (!(Number(obf[sKey]) >= MIN_HEADER_PROTECTION_PADDING)) obf[sKey] = String(MIN_HEADER_PROTECTION_PADDING);
+      }
+      return { ...prev, obfuscation: obf };
+    });
   };
 
   const handleDomainChange = async (field, domain) => {
@@ -169,6 +194,78 @@ export default function AmneziaConfigModal({ serverConfig, onClose, onSave }) {
                   />
                 </div>
               ))}
+            </div>
+
+            <div className="p-3 bg-slate-50 dark:bg-slate-800/30 rounded-lg border border-[var(--divider)] space-y-3">
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <label className="text-xs font-semibold text-slate-700 dark:text-slate-300">AmneziaWG 3.1</label>
+                  <p className="text-[10px] text-slate-500 dark:text-slate-400">
+                    Changing these settings requires every client to import its new profile
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={applyAwg3Defaults}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-amber-50 dark:bg-amber-500/10 text-amber-700 dark:text-amber-300 border border-amber-200 dark:border-amber-500/20 text-[11px] font-semibold transition active:scale-95"
+                >
+                  <Sparkles className="w-3.5 h-3.5" />
+                  <span>Apply 3.1 defaults</span>
+                </button>
+              </div>
+
+              <div>
+                <label className="block text-[10px] font-semibold text-slate-500 dark:text-slate-400 mb-1">
+                  HeaderProtectionKey (S1–S4 must be at least {MIN_HEADER_PROTECTION_PADDING})
+                </label>
+                <div className="flex items-center gap-2">
+                  <input
+                    type="text"
+                    value={formData.obfuscation.header_protection_key}
+                    onChange={(e) => handleObfChange('header_protection_key', e.target.value)}
+                    placeholder="Disabled"
+                    className="flex-1 px-3.5 py-2 rounded-lg finebank-input text-slate-900 dark:text-slate-100 text-xs font-mono placeholder-slate-400 dark:placeholder-slate-500"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => handleObfChange('header_protection_key', generateHeaderProtectionKey())}
+                    title="Generate a new key"
+                    className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 text-xs font-semibold transition"
+                  >
+                    <KeyRound className="w-3.5 h-3.5" />
+                    <span>Generate</span>
+                  </button>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                {AWG3_RANGE_FIELDS.map(({ key, label }) => (
+                  <div key={key}>
+                    <label className="block text-[10px] font-semibold text-slate-500 dark:text-slate-400 mb-1">{label}</label>
+                    <input
+                      type="text"
+                      value={formData.obfuscation[key]}
+                      onChange={(e) => handleObfChange(key, e.target.value)}
+                      placeholder="Default"
+                      className="w-full px-3 py-1.5 rounded-md finebank-input text-slate-900 dark:text-slate-100 text-xs font-mono placeholder-slate-400 dark:placeholder-slate-500"
+                    />
+                  </div>
+                ))}
+                {AWG3_SWITCH_FIELDS.map(({ key, label }) => (
+                  <div key={key}>
+                    <label className="block text-[10px] font-semibold text-slate-500 dark:text-slate-400 mb-1">{label}</label>
+                    <select
+                      value={formData.obfuscation[key]}
+                      onChange={(e) => handleObfChange(key, e.target.value)}
+                      className="w-full px-3 py-1.5 rounded-md finebank-input text-slate-900 dark:text-slate-100 text-xs font-mono"
+                    >
+                      <option value="">Not set</option>
+                      <option value="on">on</option>
+                      <option value="off">off</option>
+                    </select>
+                  </div>
+                ))}
+              </div>
             </div>
 
             <div className="space-y-4">

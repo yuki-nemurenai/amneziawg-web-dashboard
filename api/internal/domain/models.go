@@ -2,7 +2,12 @@ package domain
 
 // ObfuscationParams are the AmneziaWG parameters that disguise WireGuard
 // traffic. They are kept as strings because they are written to the
-// configuration file verbatim and H1–H4 are ranges.
+// configuration file verbatim and H1–H4 and the AmneziaWG 3 timings are
+// ranges.
+//
+// The fields from HeaderProtectionKey on are AmneziaWG 3.x settings; an empty
+// one is left out of the configuration. HeaderProtectionKey and
+// RandomTrailers must match on the server and its clients.
 type ObfuscationParams struct {
 	Jc   string `json:"jc"`
 	Jmin string `json:"jmin"`
@@ -20,6 +25,17 @@ type ObfuscationParams struct {
 	I3   string `json:"i3"`
 	I4   string `json:"i4"`
 	I5   string `json:"i5"`
+
+	HeaderProtectionKey    string `json:"header_protection_key"`
+	ContentPaddingAddition string `json:"content_padding_addition"`
+	RekeyAfterTime         string `json:"rekey_after_time"`
+	RekeyTimeout           string `json:"rekey_timeout"`
+	RejectAfterTime        string `json:"reject_after_time"`
+	KeepaliveTimeout       string `json:"keepalive_timeout"`
+	MaxHandshakeAttempts   string `json:"max_handshake_attempts"`
+	// RandomTrailers and DisableCookies are "on" or "off".
+	RandomTrailers string `json:"random_trailers"`
+	DisableCookies string `json:"disable_cookies"`
 }
 
 // ServerConfig is the server side of the AmneziaWG configuration with all its
@@ -66,11 +82,14 @@ type CreateClientRequest struct {
 }
 
 // ClientResponse is a created client with its configuration and QR code.
+// ConfigText is the AmneziaWG .conf file and AmneziaConfig the same profile
+// as the vpn:// key that the AmneziaVPN app imports.
 type ClientResponse struct {
-	Name       string `json:"name"`
-	IP         string `json:"ip"`
-	ConfigText string `json:"config_text"`
-	QRCodeSVG  string `json:"qr_code_svg"`
+	Name          string `json:"name"`
+	IP            string `json:"ip"`
+	ConfigText    string `json:"config_text"`
+	AmneziaConfig string `json:"amnezia_config"`
+	QRCodeSVG     string `json:"qr_code_svg"`
 }
 
 // SystemStatus is the live state of the interface and its traffic for the

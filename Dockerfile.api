@@ -18,10 +18,13 @@ RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w" -o /app/awg-api ./cmd/ser
 # =========================================================
 FROM golang:1.27-alpine AS awg-go
 
+# AmneziaWG 3.1: header protection, randomized timings and random trailers
+ARG AMNEZIAWG_GO_VERSION=v3.1.20260828
+
 RUN apk add --no-cache \
     git \
     build-base && \
-    git clone https://github.com/amnezia-vpn/amneziawg-go.git && \
+    git clone --depth 1 --branch ${AMNEZIAWG_GO_VERSION} https://github.com/amnezia-vpn/amneziawg-go.git && \
     cd amneziawg-go && \
     go mod download && \
     go mod verify && \
@@ -32,11 +35,14 @@ RUN apk add --no-cache \
 # =========================================================
 FROM alpine:3.24 AS tools
 
+# The awg tool must know the AmneziaWG 3.1 settings, or awg syncconf rejects them
+ARG AMNEZIAWG_TOOLS_VERSION=v3.1.20260812
+
 RUN apk add --no-cache \
     git \
     build-base \
     linux-headers && \
-    git clone https://github.com/amnezia-vpn/amneziawg-tools.git /amneziawg-tools && \
+    git clone --depth 1 --branch ${AMNEZIAWG_TOOLS_VERSION} https://github.com/amnezia-vpn/amneziawg-tools.git /amneziawg-tools && \
     cd /amneziawg-tools/src && \
     make
 

@@ -6,7 +6,8 @@ export default function AddClientModal({ onClose, onSubmit }) {
   const [ip, setIp] = useState('');
   const [loading, setLoading] = useState(false);
   const [createdClient, setCreatedClient] = useState(null);
-  const [copied, setCopied] = useState(false);
+  // copied is the field of createdClient whose text is in the clipboard.
+  const [copied, setCopied] = useState('');
   const [error, setError] = useState('');
 
   const handleSubmit = async (e) => {
@@ -28,21 +29,23 @@ export default function AddClientModal({ onClose, onSubmit }) {
     }
   };
 
-  const copyConfigText = () => {
-    if (createdClient?.config_text) {
-      navigator.clipboard.writeText(createdClient.config_text);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
+  // field is config_text for the AmneziaWG .conf file or amnezia_config for
+  // the vpn:// key of the AmneziaVPN app.
+  const copyConfigText = (field) => {
+    if (createdClient?.[field]) {
+      navigator.clipboard.writeText(createdClient[field]);
+      setCopied(field);
+      setTimeout(() => setCopied(''), 2000);
     }
   };
 
-  const handleDownloadConfig = () => {
-    if (!createdClient?.config_text) return;
-    const blob = new Blob([createdClient.config_text], { type: 'text/plain;charset=utf-8' });
+  const handleDownloadConfig = (field, ext) => {
+    if (!createdClient?.[field]) return;
+    const blob = new Blob([createdClient[field]], { type: 'text/plain;charset=utf-8' });
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.href = url;
-    link.download = `${createdClient.name}.conf`;
+    link.download = `${createdClient.name}${ext}`;
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
@@ -167,24 +170,31 @@ export default function AddClientModal({ onClose, onSubmit }) {
                   className="w-full p-3.5 rounded-lg border border-slate-800 text-[11px] focus:outline-none shadow-inner select-all config-code-box"
                 />
 
-                <div className="flex items-center gap-2">
-                  <button
-                    onClick={copyConfigText}
-                    className="flex-1 flex items-center justify-center gap-2 px-3.5 py-2.5 rounded-lg bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 text-xs font-semibold transition active:scale-95"
-                  >
-                    {copied ? <Check className="w-4 h-4 text-emerald-600 dark:text-emerald-400" /> : <Copy className="w-4 h-4" />}
-                    <span>{copied ? 'Copied!' : 'Copy Text'}</span>
-                  </button>
+                {[
+                  { field: 'config_text', ext: '.conf', copyLabel: 'Copy Text' },
+                  { field: 'amnezia_config', ext: '.vpn', copyLabel: 'Copy vpn:// key' },
+                ]
+                  .filter(({ field }) => createdClient[field])
+                  .map(({ field, ext, copyLabel }) => (
+                    <div key={field} className="flex items-center gap-2">
+                      <button
+                        onClick={() => copyConfigText(field)}
+                        className="flex-1 flex items-center justify-center gap-2 px-3.5 py-2.5 rounded-lg bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 text-xs font-semibold transition active:scale-95"
+                      >
+                        {copied === field ? <Check className="w-4 h-4 text-emerald-600 dark:text-emerald-400" /> : <Copy className="w-4 h-4" />}
+                        <span>{copied === field ? 'Copied!' : copyLabel}</span>
+                      </button>
 
-                  <button
-                    type="button"
-                    onClick={handleDownloadConfig}
-                    className="flex-1 flex items-center justify-center gap-2 px-3.5 py-2.5 rounded-lg bg-teal-600 hover:bg-teal-700 text-white text-xs font-bold shadow-md shadow-teal-600/20 transition active:scale-95"
-                  >
-                    <Download className="w-4 h-4" />
-                    <span>Download .conf</span>
-                  </button>
-                </div>
+                      <button
+                        type="button"
+                        onClick={() => handleDownloadConfig(field, ext)}
+                        className="flex-1 flex items-center justify-center gap-2 px-3.5 py-2.5 rounded-lg bg-teal-600 hover:bg-teal-700 text-white text-xs font-bold shadow-md shadow-teal-600/20 transition active:scale-95"
+                      >
+                        <Download className="w-4 h-4" />
+                        <span>Download {ext}</span>
+                      </button>
+                    </div>
+                  ))}
               </div>
             </div>
 

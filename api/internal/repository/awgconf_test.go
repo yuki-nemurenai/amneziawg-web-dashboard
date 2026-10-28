@@ -97,3 +97,76 @@ func TestFormatSyncConfigOmitsWGQuickSettings(t *testing.T) {
 		t.Errorf("FormatSyncConfig() has no peer:\n%s", got)
 	}
 }
+
+// TestFormatClientConfigWritesAWG3Settings checks the AmneziaWG 3.1 settings
+// against the order of the configurations the AmneziaVPN app exports.
+func TestFormatClientConfigWritesAWG3Settings(t *testing.T) {
+	got := FormatClientConfig(ClientConfig{
+		Address:             "10.8.1.3/32",
+		DNS:                 "1.1.1.1, 1.0.0.1",
+		PrivateKey:          "clientPriv=",
+		Obfuscation:         awg31Params,
+		ServerPublicKey:     "serverPub=",
+		PresharedKey:        "psk=",
+		AllowedIPs:          "0.0.0.0/0, ::/0",
+		Endpoint:            "vpn.example.com:601",
+		PersistentKeepalive: "25-35",
+	})
+
+	want := `[Interface]
+Address = 10.8.1.3/32
+DNS = 1.1.1.1, 1.0.0.1
+PrivateKey = clientPriv=
+Jc = 4
+Jmin = 10
+Jmax = 50
+S1 = 12
+S2 = 12
+S3 = 12
+S4 = 12
+H1 = 1
+H2 = 2
+H3 = 3
+H4 = 4
+I1 = <r 2><b 0x01>
+HeaderProtectionKey = hpKey=
+RekeyAfterTime = 100-120
+RekeyTimeout = 3-7
+RejectAfterTime = 150-180
+KeepaliveTimeout = 5-15
+MaxHandshakeAttempts = 15-20
+RandomTrailers = on
+DisableCookies = on
+
+[Peer]
+PublicKey = serverPub=
+PresharedKey = psk=
+AllowedIPs = 0.0.0.0/0, ::/0
+Endpoint = vpn.example.com:601
+PersistentKeepalive = 25-35
+`
+	if got != want {
+		t.Errorf("FormatClientConfig() =\n%s\nwant\n%s", got, want)
+	}
+}
+
+func TestServerConfigFileKeepsAWG3Settings(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "awg0.conf")
+	cfg := &domain.ServerConfig{
+		Address:     "10.8.1.1/24",
+		ListenPort:  "601",
+		Obfuscation: awg31Params,
+	}
+	cfg.Obfuscation.ContentPaddingAddition = "10-100"
+	if err := (&postgresConfigRepo{configPath: path}).flushToDisk(cfg); err != nil {
+		t.Fatalf("flushToDisk() error = %v", err)
+	}
+
+	got, err := NewFileConfigRepo(path).LoadServerConfig(t.Context())
+	if err != nil {
+		t.Fatalf("LoadServerConfig() error = %v", err)
+	}
+	if got.Obfuscation != cfg.Obfuscation {
+		t.Errorf("Obfuscation = %+v, want %+v", got.Obfuscation, cfg.Obfuscation)
+	}
+}

@@ -23,7 +23,7 @@ type ClientConfig struct {
 }
 
 // FormatClientConfig returns the client configuration file that the
-// AmneziaVPN app imports.
+// AmneziaWG app imports.
 func FormatClientConfig(c ClientConfig) string {
 	var b strings.Builder
 	b.WriteString("[Interface]\n")
@@ -119,6 +119,15 @@ func writeObfuscation(b *strings.Builder, o domain.ObfuscationParams) {
 	writeOptional(b, "I3", o.I3)
 	writeOptional(b, "I4", o.I4)
 	writeOptional(b, "I5", o.I5)
+	writeOptional(b, "HeaderProtectionKey", o.HeaderProtectionKey)
+	writeOptional(b, "ContentPaddingAddition", o.ContentPaddingAddition)
+	writeOptional(b, "RekeyAfterTime", o.RekeyAfterTime)
+	writeOptional(b, "RekeyTimeout", o.RekeyTimeout)
+	writeOptional(b, "RejectAfterTime", o.RejectAfterTime)
+	writeOptional(b, "KeepaliveTimeout", o.KeepaliveTimeout)
+	writeOptional(b, "MaxHandshakeAttempts", o.MaxHandshakeAttempts)
+	writeOptional(b, "RandomTrailers", o.RandomTrailers)
+	writeOptional(b, "DisableCookies", o.DisableCookies)
 }
 
 func writeSetting(b *strings.Builder, key, value string) {

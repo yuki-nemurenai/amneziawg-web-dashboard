@@ -75,32 +75,53 @@ func RandomIntInRange(lo, hi int64) int64 {
 }
 
 // ObfuscationParams are the AmneziaWG parameters that disguise WireGuard
-// handshakes: junk packets (Jc, Jmin, Jmax), padding (S1–S4) and message type
-// header ranges (H1–H4).
+// handshakes: junk packets (Jc, Jmin, Jmax), padding (S1–S4), message type
+// header ranges (H1–H4) and the AmneziaWG 3 header protection key.
 type ObfuscationParams struct {
-	Jc, Jmin, Jmax string
-	S1, S2, S3, S4 string
-	H1, H2, H3, H4 string
+	Jc, Jmin, Jmax      string
+	S1, S2, S3, S4      string
+	H1, H2, H3, H4      string
+	HeaderProtectionKey string
 }
+
+// MinHeaderProtectionPadding is the smallest S1–S4 that header protection
+// accepts: the padding carries the nonce of the header cipher.
+const MinHeaderProtectionPadding = 12
 
 // GenerateObfuscationParams returns random obfuscation parameters, so that
 // servers set up from the dashboard do not share a fingerprint. The H ranges
-// do not overlap, as AmneziaWG requires distinct headers.
+// do not overlap, as AmneziaWG requires distinct headers, and S1–S4 are wide
+// enough for header protection.
 func GenerateObfuscationParams() ObfuscationParams {
 	jmin := RandomIntInRange(10, 40)
 	return ObfuscationParams{
-		Jc:   strconv.FormatInt(RandomIntInRange(3, 10), 10),
-		Jmin: strconv.FormatInt(jmin, 10),
-		Jmax: strconv.FormatInt(RandomIntInRange(jmin+10, 100), 10),
-		S1:   strconv.FormatInt(RandomIntInRange(15, 160), 10),
-		S2:   strconv.FormatInt(RandomIntInRange(15, 160), 10),
-		S3:   strconv.FormatInt(RandomIntInRange(15, 160), 10),
-		S4:   strconv.FormatInt(RandomIntInRange(15, 160), 10),
-		H1:   randomRange(1000000000, 1500000000, 200000000, 2000000000-1),
-		H2:   randomRange(2000000000, 2050000000, 20000000, 2060000000-1),
-		H3:   randomRange(2060000000, 2100000000, 20000000, 2110000000-1),
-		H4:   randomRange(2110000000, 2140000000, 7000000, math.MaxInt32),
+		Jc:                  strconv.FormatInt(RandomIntInRange(3, 10), 10),
+		Jmin:                strconv.FormatInt(jmin, 10),
+		Jmax:                strconv.FormatInt(RandomIntInRange(jmin+10, 100), 10),
+		S1:                  strconv.FormatInt(RandomIntInRange(15, 160), 10),
+		S2:                  strconv.FormatInt(RandomIntInRange(15, 160), 10),
+		S3:                  strconv.FormatInt(RandomIntInRange(15, 160), 10),
+		S4:                  strconv.FormatInt(RandomIntInRange(15, 160), 10),
+		H1:                  randomRange(1000000000, 1500000000, 200000000, 2000000000-1),
+		H2:                  randomRange(2000000000, 2050000000, 20000000, 2060000000-1),
+		H3:                  randomRange(2060000000, 2100000000, 20000000, 2110000000-1),
+		H4:                  randomRange(2110000000, 2140000000, 7000000, math.MaxInt32),
+		HeaderProtectionKey: GenerateHeaderProtectionKey(),
 	}
+}
+
+// GenerateHeaderProtectionKey returns a random 32-byte AmneziaWG 3 header
+// protection key in base64, the form of awg genkey that the configuration
+// files use.
+func GenerateHeaderProtectionKey() string {
+	return GeneratePresharedKey()
+}
+
+// IsKey reports whether s is a base64 32-byte key, the form of private,
+// public, preshared and header protection keys in configuration files.
+func IsKey(s string) bool {
+	b, err := base64.StdEncoding.DecodeString(s)
+	return err == nil && len(b) == 32
 }
 
 // minHeaderRangeWidth is the narrowest H range generated.

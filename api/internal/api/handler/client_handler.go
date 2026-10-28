@@ -68,18 +68,36 @@ func (h *ClientHandler) GetClientQRCode(w http.ResponseWriter, r *http.Request) 
 	writeJSON(w, http.StatusOK, map[string]string{"name": name, "qr_code_svg": qrDataURL})
 }
 
-// DownloadClientConfig serves GET /api/clients/{name}/download as a .conf
-// attachment.
+// DownloadClientConfig serves GET /api/clients/{name}/download as an
+// attachment: the AmneziaWG .conf file, or with format=amnezia the .vpn file
+// of the AmneziaVPN app.
 func (h *ClientHandler) DownloadClientConfig(w http.ResponseWriter, r *http.Request) {
 	name := chi.URLParam(r, "name")
-	configText, err := h.awgService.GetClientConfigText(r.Context(), name)
+
+	var (
+		configText  string
+		err         error
+		contentType = "application/x-wireguard-config"
+		filename    = name + ".conf"
+	)
+	switch format := r.URL.Query().Get("format"); format {
+	case "", "awg":
+		configText, err = h.awgService.GetClientConfigText(r.Context(), name)
+	case "amnezia":
+		configText, err = h.awgService.GetClientAmneziaConfig(r.Context(), name)
+		contentType = "text/plain; charset=utf-8"
+		filename = name + ".vpn"
+	default:
+		writeJSON(w, http.StatusBadRequest, errorResponse{Error: fmt.Sprintf("Unknown config format %q", format)})
+		return
+	}
 	if err != nil {
 		writeError(w, r, err)
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/x-wireguard-config")
-	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=%q", name+".conf"))
+	w.Header().Set("Content-Type", contentType)
+	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=%q", filename))
 	if _, err := w.Write([]byte(configText)); err != nil {
 		slog.Warn("Failed to write client config", "client", name, "error", err)
 	}

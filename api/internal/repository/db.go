@@ -106,6 +106,18 @@ func migrateSchema(ctx context.Context, pool *pgxpool.Pool) error {
 			i1 TEXT, i2 TEXT, i3 TEXT, i4 TEXT, i5 TEXT,
 			updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 		);`,
+		// The AmneziaWG 3.1 settings. Rows written before them get empty
+		// strings, which leave the settings out of the configuration.
+		`ALTER TABLE server_config
+			ADD COLUMN IF NOT EXISTS header_protection_key TEXT NOT NULL DEFAULT '',
+			ADD COLUMN IF NOT EXISTS content_padding_addition TEXT NOT NULL DEFAULT '',
+			ADD COLUMN IF NOT EXISTS rekey_after_time TEXT NOT NULL DEFAULT '',
+			ADD COLUMN IF NOT EXISTS rekey_timeout TEXT NOT NULL DEFAULT '',
+			ADD COLUMN IF NOT EXISTS reject_after_time TEXT NOT NULL DEFAULT '',
+			ADD COLUMN IF NOT EXISTS keepalive_timeout TEXT NOT NULL DEFAULT '',
+			ADD COLUMN IF NOT EXISTS max_handshake_attempts TEXT NOT NULL DEFAULT '',
+			ADD COLUMN IF NOT EXISTS random_trailers TEXT NOT NULL DEFAULT '',
+			ADD COLUMN IF NOT EXISTS disable_cookies TEXT NOT NULL DEFAULT '';`,
 		`CREATE TABLE IF NOT EXISTS peers (
 			id SERIAL PRIMARY KEY,
 			name VARCHAR(100) UNIQUE NOT NULL,

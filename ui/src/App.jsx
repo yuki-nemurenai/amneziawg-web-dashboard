@@ -208,8 +208,10 @@ export default function App() {
     }
   };
 
-  const handleDownloadConfig = (name) => {
-    window.location.href = `/api/clients/${encodeURIComponent(name)}/download?token=${encodeURIComponent(authToken)}`;
+  // format is 'awg' for the AmneziaWG .conf file or 'amnezia' for the
+  // AmneziaVPN .vpn file.
+  const handleDownloadConfig = (name, format = 'awg') => {
+    window.location.href = `/api/clients/${encodeURIComponent(name)}/download?format=${format}&token=${encodeURIComponent(authToken)}`;
   };
 
   const handleSaveSettings = async (newConfig) => {

@@ -9,14 +9,20 @@
 [![Conventional Commits](https://img.shields.io/badge/Conventional_Commits-1.0.0-FE5196?style=for-the-badge&logo=conventionalcommits&logoColor=white)](https://www.conventionalcommits.org/)
 [![License](https://img.shields.io/github/license/yuki-nemurenai/amneziawg-web-dashboard?style=for-the-badge)](LICENSE)
 
-A web-based dashboard and management panel for AmneziaWG (AWG) servers.
+A web-based dashboard and management panel for AmneziaWG 3.1 (AWG) servers.
 
 ## Features
 
 - **User Authentication & First-Run Wizard**: Secure first-run setup wizard for creating the initial user, bcrypt password hashing, and JWT-based authentication.
 - **Real-Time Traffic & Connection Monitoring**: Live bandwidth statistics (`Rx/Tx bytes`), latest handshake times, and online/offline status indicators.
-- **QR Codes & Client Configuration Pairing**: One-click generation of client `.conf` files and instant QR code display for easy pairing with mobile devices using the AmneziaWG and AmneziaVPN apps.
-- **AmneziaWG ASC Parameter Manager**: GUI editor for server settings and anti-censorship parameters, including `Jc`, `Jmin`, `Jmax`, `S1`–`S4`, `H1`–`H4`, and `I1`–`I4`.
+- **QR Codes & Client Configuration Pairing**: One-click generation of client profiles in both formats, plus a QR code for mobile devices:
+
+  | Format | App | Download |
+  |--------|-----|----------|
+  | `<name>.conf` | AmneziaWG | `GET /api/clients/<name>/download` |
+  | `<name>.vpn` (`vpn://` key) | AmneziaVPN | `GET /api/clients/<name>/download?format=amnezia` |
+
+- **AmneziaWG ASC Parameter Manager**: GUI editor for server settings and anti-censorship parameters, including `Jc`, `Jmin`, `Jmax`, `S1`–`S4`, `H1`–`H4`, `I1`–`I5` and the AmneziaWG 3.1 settings `HeaderProtectionKey`, `ContentPaddingAddition`, `RekeyAfterTime`, `RekeyTimeout`, `RejectAfterTime`, `KeepaliveTimeout`, `MaxHandshakeAttempts`, `RandomTrailers` and `DisableCookies`. New servers start with the AmneziaWG 3.1 defaults of the AmneziaVPN app and a random header protection key.
 - **Dynamic Interface Synchronization**: Adds and removes peers dynamically using `awg syncconf` without interrupting existing active client tunnels.
 - **Containerized Architecture**: Separate Docker containers for the React frontend (served by Nginx), Go REST API backend, and PostgreSQL database.
 
@@ -170,6 +176,8 @@ udp_tunnel             36864  1 amneziawg
 
 For more information about supported installation methods and kernel requirements, see the [official AmneziaWG kernel module documentation](https://github.com/amnezia-vpn/amneziawg-linux-kernel-module).
 
+> **Note:** The AmneziaWG 3.1 settings require kernel module `v3.1.20260812` or later. An older module rejects them; remove it to fall back to the bundled `amneziawg-go` userspace implementation.
+
 ## Install the AmneziaWG Web Dashboard
 
 Clone the repository:
@@ -216,6 +224,10 @@ http://<your-server-ip>
 ```
 
 On first startup, the **Initial User Setup Wizard** will prompt you to create an administrator account. After registration, you will be redirected to the **AmneziaWG Server Control Panel**.
+
+## Upgrade from AmneziaWG 2
+
+An existing server keeps its AmneziaWG 2 settings after the upgrade, so its clients stay connected. To switch it to AmneziaWG 3.1, open **AmneziaWG Configuration**, press **Apply 3.1 defaults** and save. The dashboard rewrites the stored client profiles; every client must then import its new `.conf` or `.vpn` file.
 
 ## Architecture
 

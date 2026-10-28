@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io/fs"
 	"log/slog"
+	"net/netip"
 	"os"
 	"path/filepath"
 	"slices"
@@ -66,6 +67,9 @@ type AWGService interface {
 	CreateClient(ctx context.Context, req domain.CreateClientRequest) (*domain.ClientResponse, error)
 	DeleteClient(ctx context.Context, name string) error
 	GetClientConfigText(ctx context.Context, name string) (string, error)
+	// GetClientAmneziaConfig returns the client profile as the vpn:// key
+	// that the AmneziaVPN app imports.
+	GetClientAmneziaConfig(ctx context.Context, name string) (string, error)
 	GetClientQRCode(ctx context.Context, name string) (string, error)
 	GetSystemStatus(ctx context.Context) (*domain.SystemStatus, error)
 	// StartMetricsCollector records the traffic every five minutes until ctx
@@ -135,6 +139,13 @@ func (s *awgService) GetServerConfig(ctx context.Context) (*domain.ServerConfig,
 }
 
 func (s *awgService) UpdateServerConfig(ctx context.Context, newCfg *domain.ServerConfig) error {
+	// awg syncconf would reject these settings after they are saved and the
+	// client configurations rewritten, leaving the clients out of step with
+	// the interface.
+	if err := validateObfuscation(newCfg.Obfuscation); err != nil {
+		return err
+	}
+
 	current, err := s.repo.LoadServerConfig(ctx)
 	if err != nil {
 		return err
@@ -163,21 +174,10 @@ func (s *awgService) regenerateClientConfigs(ctx context.Context, cfg *domain.Se
 		name := strings.TrimSuffix(f.Name(), ".conf")
 		path := filepath.Join(s.clientsDir, f.Name())
 
-		content, err := os.ReadFile(path)
+		privKey, err := s.clientPrivateKey(name)
 		if err != nil {
 			slog.Warn("Failed to read client config", "path", path, "error", err)
 			continue
-		}
-
-		privKey := ""
-		for line := range strings.SplitSeq(string(content), "\n") {
-			if strings.HasPrefix(strings.TrimSpace(line), "PrivateKey") {
-				parts := strings.Split(line, "=")
-				if len(parts) == 2 {
-					privKey = strings.TrimSpace(parts[1])
-				}
-				break
-			}
 		}
 		if privKey == "" {
 			continue
@@ -255,13 +255,19 @@ func (s *awgService) CreateClient(ctx context.Context, req domain.CreateClientRe
 		return nil, err
 	}
 
-	clientConfigText := s.buildClientConfig(ctx, cfg, clientKeyPair.PrivateKey, psk, clientIP)
+	clientCfg := s.clientConfig(ctx, cfg, clientKeyPair.PrivateKey, psk, clientIP)
+	clientConfigText := repository.FormatClientConfig(clientCfg)
 
 	// The response below is the only other copy of the private key: without
 	// this file later downloads show a placeholder instead.
 	clientFilePath := filepath.Join(s.clientsDir, name+".conf")
 	if err := os.WriteFile(clientFilePath, []byte(clientConfigText), 0600); err != nil {
 		slog.Error("Failed to save client config", "path", clientFilePath, "error", err)
+	}
+
+	amneziaConfig, err := repository.FormatAmneziaVPNConfig(amneziaVPNConfig(cfg, clientCfg, clientKeyPair.PublicKey))
+	if err != nil {
+		slog.Warn("Failed to build AmneziaVPN config", "client", name, "error", err)
 	}
 
 	qrDataURL, err := qrcode.GeneratePNGDataURL(clientConfigText, 320)
@@ -272,10 +278,11 @@ func (s *awgService) CreateClient(ctx context.Context, req domain.CreateClientRe
 	s.syncRuntime(ctx)
 
 	return &domain.ClientResponse{
-		Name:       name,
-		IP:         clientIP,
-		ConfigText: clientConfigText,
-		QRCodeSVG:  qrDataURL,
+		Name:          name,
+		IP:            clientIP,
+		ConfigText:    clientConfigText,
+		AmneziaConfig: amneziaConfig,
+		QRCodeSVG:     qrDataURL,
 	}, nil
 }
 
@@ -314,6 +321,61 @@ func (s *awgService) GetClientConfigText(ctx context.Context, name string) (stri
 	}
 
 	return s.buildClientConfig(ctx, cfg, hiddenClientKey, peer.PresharedKey, peer.IP), nil
+}
+
+func (s *awgService) GetClientAmneziaConfig(ctx context.Context, name string) (string, error) {
+	peer, err := s.repo.GetPeerByName(ctx, name)
+	if err != nil {
+		return "", err
+	}
+
+	cfg, err := s.repo.LoadServerConfig(ctx)
+	if err != nil {
+		return "", err
+	}
+
+	// As with the .conf download, a client whose file is lost gets a
+	// placeholder instead of its private key.
+	privKey, err := s.clientPrivateKey(name)
+	if err != nil && !errors.Is(err, fs.ErrNotExist) {
+		return "", err
+	}
+	if privKey == "" {
+		privKey = hiddenClientKey
+	}
+
+	clientCfg := s.clientConfig(ctx, cfg, privKey, peer.PresharedKey, peer.IP)
+	return repository.FormatAmneziaVPNConfig(amneziaVPNConfig(cfg, clientCfg, peer.PublicKey))
+}
+
+// clientPrivateKey reads the private key of the named client from its stored
+// configuration, the only place that keeps it. It is empty if the file has
+// none.
+func (s *awgService) clientPrivateKey(name string) (string, error) {
+	content, err := os.ReadFile(filepath.Join(s.clientsDir, name+".conf"))
+	if err != nil {
+		return "", fmt.Errorf("read client config %q: %w", name, err)
+	}
+	for line := range strings.SplitSeq(string(content), "\n") {
+		if key, value, ok := strings.Cut(line, "="); ok && strings.TrimSpace(key) == "PrivateKey" {
+			return strings.TrimSpace(value), nil
+		}
+	}
+	return "", nil
+}
+
+// amneziaVPNConfig adds to a client configuration what the AmneziaVPN app
+// keeps about the server.
+func amneziaVPNConfig(serverCfg *domain.ServerConfig, client repository.ClientConfig, clientPublicKey string) repository.AmneziaVPNConfig {
+	var subnet string
+	if prefix, err := netip.ParsePrefix(strings.TrimSpace(serverCfg.Address)); err == nil {
+		subnet = prefix.Masked().Addr().String()
+	}
+	return repository.AmneziaVPNConfig{
+		Client:          client,
+		ClientPublicKey: clientPublicKey,
+		SubnetAddress:   subnet,
+	}
 }
 
 func (s *awgService) GetClientQRCode(ctx context.Context, name string) (string, error) {
@@ -496,10 +558,15 @@ func parseDump(output []byte) map[string]peerRuntimeStats {
 	return stats
 }
 
-// buildClientConfig returns the configuration file of a client. Unless the
-// server limits clients to LAN routes, they send all their traffic through the
-// tunnel.
+// buildClientConfig returns the configuration file of a client.
 func (s *awgService) buildClientConfig(ctx context.Context, serverCfg *domain.ServerConfig, clientPrivKey string, psk string, clientIP string) string {
+	return repository.FormatClientConfig(s.clientConfig(ctx, serverCfg, clientPrivKey, psk, clientIP))
+}
+
+// clientConfig returns the configuration of a client. Unless the server
+// limits clients to LAN routes, they send all their traffic through the
+// tunnel.
+func (s *awgService) clientConfig(ctx context.Context, serverCfg *domain.ServerConfig, clientPrivKey string, psk string, clientIP string) repository.ClientConfig {
 	allowed := strings.TrimSpace(serverCfg.LANAllowed)
 	if allowed == "" || allowed == allTrafficIPs || allowed == "0.0.0.0/0" {
 		allowed = allTrafficIPs
@@ -509,7 +576,7 @@ func (s *awgService) buildClientConfig(ctx context.Context, serverCfg *domain.Se
 
 	endpoint, _ := s.endpoint(ctx, serverCfg.Endpoint, serverCfg.ListenPort)
 
-	return repository.FormatClientConfig(repository.ClientConfig{
+	return repository.ClientConfig{
 		Address:             clientIP + "/32",
 		DNS:                 serverCfg.DNS,
 		PrivateKey:          clientPrivKey,
@@ -519,7 +586,34 @@ func (s *awgService) buildClientConfig(ctx context.Context, serverCfg *domain.Se
 		AllowedIPs:          allowed,
 		Endpoint:            endpoint,
 		PersistentKeepalive: serverCfg.PersistentKeepalive,
-	})
+	}
+}
+
+// validateObfuscation checks the AmneziaWG 3 rules that awg would enforce
+// only when applying the configuration: a header protection key is a base64
+// 32-byte key and needs every S1–S4 padding to hold the cipher nonce, and the
+// switches are on or off.
+func validateObfuscation(o domain.ObfuscationParams) error {
+	if o.HeaderProtectionKey != "" {
+		if !crypto.IsKey(o.HeaderProtectionKey) {
+			return fmt.Errorf("%w: header protection key is not a base64 32-byte key", domain.ErrInvalidInput)
+		}
+		for i, s := range []string{o.S1, o.S2, o.S3, o.S4} {
+			if n, err := strconv.Atoi(s); err != nil || n < crypto.MinHeaderProtectionPadding {
+				return fmt.Errorf("%w: header protection needs S%d of at least %d, got %q",
+					domain.ErrInvalidInput, i+1, crypto.MinHeaderProtectionPadding, s)
+			}
+		}
+	}
+	for _, sw := range []struct{ name, value string }{
+		{"RandomTrailers", o.RandomTrailers},
+		{"DisableCookies", o.DisableCookies},
+	} {
+		if sw.value != "" && sw.value != "on" && sw.value != "off" {
+			return fmt.Errorf("%w: %s must be on or off, got %q", domain.ErrInvalidInput, sw.name, sw.value)
+		}
+	}
+	return nil
 }
 
 // syncRuntime brings the live interface, its address, peers and NAT rules in

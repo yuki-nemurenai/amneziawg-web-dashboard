@@ -3,6 +3,8 @@ package service
 import (
 	"context"
 	"errors"
+	"os"
+	"path/filepath"
 	"slices"
 	"strconv"
 	"strings"
@@ -317,5 +319,117 @@ func TestDeleteClientReportsMissingClientAsNotFound(t *testing.T) {
 
 	if err := svc.DeleteClient(t.Context(), "nobody"); !errors.Is(err, domain.ErrNotFound) {
 		t.Errorf("DeleteClient(nobody) error = %v, want %v", err, domain.ErrNotFound)
+	}
+}
+
+// TestUpdateServerConfigRewritesClientConfigs guards the rewrite of stored
+// client configurations after a server change. It used to split the
+// PrivateKey line on every "=", so the padding of a base64 key left the key
+// unread and the file unchanged.
+func TestUpdateServerConfigRewritesClientConfigs(t *testing.T) {
+	const privKey = "gB2mUJH9s1Pw0kQ9JbV6U3qUcXr1kZ0b6H0b2J9n0Xc="
+	dir := t.TempDir()
+	path := filepath.Join(dir, "alice.conf")
+	if err := os.WriteFile(path, []byte("[Interface]\nPrivateKey = "+privKey+"\nJc = 4\n"), 0600); err != nil {
+		t.Fatalf("write client config: %v", err)
+	}
+	repo := &fakeConfigRepo{cfg: domain.ServerConfig{
+		Address:    "10.0.0.1/24",
+		ListenPort: "51820",
+		Endpoint:   "vpn.example.com",
+		Peers:      []domain.Peer{{Name: "alice", PublicKey: "alicePub=", IP: "10.0.0.2"}},
+	}}
+	svc := newTestAWGService(repo, &fakeCommander{missing: []string{"awg"}}, fakeLocator{})
+	svc.clientsDir = dir
+
+	newCfg := repo.cfg
+	newCfg.Obfuscation = domain.ObfuscationParams{
+		Jc: "5", S1: "12", S2: "12", S3: "12", S4: "12",
+		HeaderProtectionKey: "5dToKSYoKsHhWVBt+849QQAfomCM9sW23rq2oQos0hE=",
+	}
+	if err := svc.UpdateServerConfig(t.Context(), &newCfg); err != nil {
+		t.Fatalf("UpdateServerConfig() error = %v", err)
+	}
+
+	content, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read client config: %v", err)
+	}
+	for _, want := range []string{"PrivateKey = " + privKey + "\n", "Jc = 5\n", "HeaderProtectionKey = 5dToKSYoKsHhWVBt+849QQAfomCM9sW23rq2oQos0hE=\n"} {
+		if !strings.Contains(string(content), want) {
+			t.Errorf("client config has no %q:\n%s", want, content)
+		}
+	}
+}
+
+func TestUpdateServerConfigRejectsInvalidAWG3Settings(t *testing.T) {
+	const hpKey = "5dToKSYoKsHhWVBt+849QQAfomCM9sW23rq2oQos0hE="
+	tests := []struct {
+		name string
+		obf  domain.ObfuscationParams
+	}{
+		{name: "malformed key", obf: domain.ObfuscationParams{S1: "12", S2: "12", S3: "12", S4: "12", HeaderProtectionKey: "not-a-key"}},
+		{name: "short key", obf: domain.ObfuscationParams{S1: "12", S2: "12", S3: "12", S4: "12", HeaderProtectionKey: "AAAA"}},
+		{name: "padding too small for header protection", obf: domain.ObfuscationParams{S1: "12", S2: "12", S3: "11", S4: "12", HeaderProtectionKey: hpKey}},
+		{name: "missing padding with header protection", obf: domain.ObfuscationParams{S1: "12", S2: "12", S3: "12", HeaderProtectionKey: hpKey}},
+		{name: "random trailers not a switch", obf: domain.ObfuscationParams{RandomTrailers: "yes"}},
+		{name: "disable cookies not a switch", obf: domain.ObfuscationParams{DisableCookies: "1"}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			repo := &fakeConfigRepo{}
+			svc := newTestAWGService(repo, &fakeCommander{missing: []string{"awg"}}, fakeLocator{})
+
+			err := svc.UpdateServerConfig(t.Context(), &domain.ServerConfig{Obfuscation: tt.obf})
+			if !errors.Is(err, domain.ErrInvalidInput) {
+				t.Errorf("UpdateServerConfig(%+v) error = %v, want %v", tt.obf, err, domain.ErrInvalidInput)
+			}
+			if repo.cfg.Obfuscation != (domain.ObfuscationParams{}) {
+				t.Errorf("UpdateServerConfig saved rejected settings %+v", repo.cfg.Obfuscation)
+			}
+		})
+	}
+}
+
+func TestUpdateServerConfigAcceptsAWG3Settings(t *testing.T) {
+	svc := newTestAWGService(&fakeConfigRepo{}, &fakeCommander{missing: []string{"awg"}}, fakeLocator{})
+	svc.clientsDir = t.TempDir()
+
+	err := svc.UpdateServerConfig(t.Context(), &domain.ServerConfig{Obfuscation: domain.ObfuscationParams{
+		Jc: "4", S1: "12", S2: "12", S3: "12", S4: "12",
+		HeaderProtectionKey: "5dToKSYoKsHhWVBt+849QQAfomCM9sW23rq2oQos0hE=",
+		RandomTrailers:      "on",
+		DisableCookies:      "off",
+	}})
+	if err != nil {
+		t.Errorf("UpdateServerConfig() error = %v, want nil", err)
+	}
+}
+
+func TestGetClientAmneziaConfigServesClientWithoutStoredConfig(t *testing.T) {
+	repo := &fakeConfigRepo{cfg: domain.ServerConfig{
+		Address:    "10.8.1.1/24",
+		ListenPort: "601",
+		Endpoint:   "vpn.example.com",
+		PublicKey:  "serverPub=",
+		Peers:      []domain.Peer{{Name: "bob", PublicKey: "bobPub=", IP: "10.8.1.3"}},
+	}}
+	svc := newTestAWGService(repo, &fakeCommander{}, fakeLocator{})
+	svc.clientsDir = t.TempDir()
+
+	got, err := svc.GetClientAmneziaConfig(t.Context(), "bob")
+	if err != nil {
+		t.Fatalf("GetClientAmneziaConfig() error = %v", err)
+	}
+	if !strings.HasPrefix(got, "vpn://") {
+		t.Errorf("GetClientAmneziaConfig() = %q, want a vpn:// key", got)
+	}
+}
+
+func TestGetClientAmneziaConfigReportsMissingClientAsNotFound(t *testing.T) {
+	svc := newTestAWGService(&fakeConfigRepo{}, &fakeCommander{}, fakeLocator{})
+
+	if _, err := svc.GetClientAmneziaConfig(t.Context(), "nobody"); !errors.Is(err, domain.ErrNotFound) {
+		t.Errorf("GetClientAmneziaConfig(nobody) error = %v, want %v", err, domain.ErrNotFound)
 	}
 }

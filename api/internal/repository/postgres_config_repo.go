@@ -80,7 +80,10 @@ func (r *postgresConfigRepo) LoadServerConfig(ctx context.Context) (*domain.Serv
 	query := `SELECT
 		private_key, public_key, address, listen_port, endpoint, dns, lan_allowed,
 		persistent_keepalive, post_up, post_down,
-		jc, jmin, jmax, s1, s2, s3, s4, h1, h2, h3, h4, i1, i2, i3, i4, i5
+		jc, jmin, jmax, s1, s2, s3, s4, h1, h2, h3, h4, i1, i2, i3, i4, i5,
+		header_protection_key, content_padding_addition,
+		rekey_after_time, rekey_timeout, reject_after_time, keepalive_timeout, max_handshake_attempts,
+		random_trailers, disable_cookies
 	FROM server_config WHERE id = 1`
 
 	var cfg domain.ServerConfig
@@ -91,6 +94,10 @@ func (r *postgresConfigRepo) LoadServerConfig(ctx context.Context) (*domain.Serv
 		&cfg.Obfuscation.S1, &cfg.Obfuscation.S2, &cfg.Obfuscation.S3, &cfg.Obfuscation.S4,
 		&cfg.Obfuscation.H1, &cfg.Obfuscation.H2, &cfg.Obfuscation.H3, &cfg.Obfuscation.H4,
 		&cfg.Obfuscation.I1, &cfg.Obfuscation.I2, &cfg.Obfuscation.I3, &cfg.Obfuscation.I4, &cfg.Obfuscation.I5,
+		&cfg.Obfuscation.HeaderProtectionKey, &cfg.Obfuscation.ContentPaddingAddition,
+		&cfg.Obfuscation.RekeyAfterTime, &cfg.Obfuscation.RekeyTimeout, &cfg.Obfuscation.RejectAfterTime,
+		&cfg.Obfuscation.KeepaliveTimeout, &cfg.Obfuscation.MaxHandshakeAttempts,
+		&cfg.Obfuscation.RandomTrailers, &cfg.Obfuscation.DisableCookies,
 	)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, fmt.Errorf("server config: %w", domain.ErrNotFound)
@@ -129,10 +136,14 @@ func (r *postgresConfigRepo) SaveServerConfig(ctx context.Context, cfg *domain.S
 		INSERT INTO server_config (
 			id, private_key, public_key, address, listen_port, endpoint, dns, lan_allowed,
 			persistent_keepalive, post_up, post_down,
-			jc, jmin, jmax, s1, s2, s3, s4, h1, h2, h3, h4, i1, i2, i3, i4, i5
+			jc, jmin, jmax, s1, s2, s3, s4, h1, h2, h3, h4, i1, i2, i3, i4, i5,
+			header_protection_key, content_padding_addition,
+			rekey_after_time, rekey_timeout, reject_after_time, keepalive_timeout, max_handshake_attempts,
+			random_trailers, disable_cookies
 		) VALUES (
 			1, $1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
-			$11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26
+			$11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26,
+			$27, $28, $29, $30, $31, $32, $33, $34, $35
 		)
 		ON CONFLICT (id) DO UPDATE SET
 			private_key=EXCLUDED.private_key, public_key=EXCLUDED.public_key,
@@ -144,6 +155,12 @@ func (r *postgresConfigRepo) SaveServerConfig(ctx context.Context, cfg *domain.S
 			s1=EXCLUDED.s1, s2=EXCLUDED.s2, s3=EXCLUDED.s3, s4=EXCLUDED.s4,
 			h1=EXCLUDED.h1, h2=EXCLUDED.h2, h3=EXCLUDED.h3, h4=EXCLUDED.h4,
 			i1=EXCLUDED.i1, i2=EXCLUDED.i2, i3=EXCLUDED.i3, i4=EXCLUDED.i4, i5=EXCLUDED.i5,
+			header_protection_key=EXCLUDED.header_protection_key,
+			content_padding_addition=EXCLUDED.content_padding_addition,
+			rekey_after_time=EXCLUDED.rekey_after_time, rekey_timeout=EXCLUDED.rekey_timeout,
+			reject_after_time=EXCLUDED.reject_after_time, keepalive_timeout=EXCLUDED.keepalive_timeout,
+			max_handshake_attempts=EXCLUDED.max_handshake_attempts,
+			random_trailers=EXCLUDED.random_trailers, disable_cookies=EXCLUDED.disable_cookies,
 			updated_at=CURRENT_TIMESTAMP
 	`
 	_, err := r.pool.Exec(ctx, query,
@@ -153,6 +170,10 @@ func (r *postgresConfigRepo) SaveServerConfig(ctx context.Context, cfg *domain.S
 		cfg.Obfuscation.S1, cfg.Obfuscation.S2, cfg.Obfuscation.S3, cfg.Obfuscation.S4,
 		cfg.Obfuscation.H1, cfg.Obfuscation.H2, cfg.Obfuscation.H3, cfg.Obfuscation.H4,
 		cfg.Obfuscation.I1, cfg.Obfuscation.I2, cfg.Obfuscation.I3, cfg.Obfuscation.I4, cfg.Obfuscation.I5,
+		cfg.Obfuscation.HeaderProtectionKey, cfg.Obfuscation.ContentPaddingAddition,
+		cfg.Obfuscation.RekeyAfterTime, cfg.Obfuscation.RekeyTimeout, cfg.Obfuscation.RejectAfterTime,
+		cfg.Obfuscation.KeepaliveTimeout, cfg.Obfuscation.MaxHandshakeAttempts,
+		cfg.Obfuscation.RandomTrailers, cfg.Obfuscation.DisableCookies,
 	)
 	if err != nil {
 		return fmt.Errorf("save server config: %w", err)
