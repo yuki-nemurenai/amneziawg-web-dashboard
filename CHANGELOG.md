@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.3.1](https://github.com/yuki-nemurenai/amneziawg-web-dashboard/compare/v0.3.0...v0.3.1) (2026-10-28)
+
+### Bug Fixes
+
+- support profile copying without Clipboard API ([44ec035](https://github.com/yuki-nemurenai/amneziawg-web-dashboard/commit/44ec0359466ed988e8c916ab27d5a19e1ad0d1ca))
+
 ## [0.3.0](https://github.com/yuki-nemurenai/amneziawg-web-dashboard/compare/v0.2.1...v0.3.0) (2026-10-28)
 
 ### Features
