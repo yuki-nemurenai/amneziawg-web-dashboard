@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.3.0](https://github.com/yuki-nemurenai/amneziawg-web-dashboard/compare/v0.2.1...v0.3.0) (2026-10-28)
+
+### Features
+
+- support AmneziaWG 3.1 and AmneziaVPN .vpn profiles ([7827e5c](https://github.com/yuki-nemurenai/amneziawg-web-dashboard/commit/7827e5cc02398e077f54df7497ad8ec7124bf394))
+
 ## [0.2.1](https://github.com/yuki-nemurenai/amneziawg-web-dashboard/compare/v0.2.0...v0.2.1) (2026-10-09)
 
 ### Bug Fixes
